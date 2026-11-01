@@ -47,6 +47,8 @@ export async function GET(request: Request) {
   if (dbUrl) {
     const sql = postgres(dbUrl, { ssl: "require", max: 1, prepare: false, onnotice: () => {} });
     try {
+      report.brokers_in_database = await sql`
+        select label, kind, status, is_demo, (app_id is not null) as has_app_id, created_at from brokers order by created_at`;
       report.database = await sql`
         select relname as table, n_live_tup as rows, n_tup_ins as inserted, n_tup_del as deleted
         from pg_stat_user_tables where schemaname = 'public' order by relname`;

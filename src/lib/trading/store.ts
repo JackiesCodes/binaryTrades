@@ -247,7 +247,12 @@ function buildStore(): Store {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (url && serviceKey && !url.includes("your-project")) {
-    const client = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+    const client = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      // Next.js caches fetch() responses in its Data Cache unless told not to. Database reads must
+      // always be live — a cached "list accounts" response made the dashboard show no accounts.
+      global: { fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }) },
+    });
     const c = <T extends Row>(t: TableName) => supabaseCollection<T>(client, t);
     return {
       backend: "supabase",
