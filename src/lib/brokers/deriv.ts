@@ -303,22 +303,37 @@ export interface Candle {
 
 export const DERIV_GRANULARITIES = [60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400] as const;
 
+/** Deriv returns at most this many candles per request; longer histories are fetched page by page. */
+const CANDLES_PER_REQUEST = 1000;
+
 export async function derivCandles(symbol: string, granularity: number, count: number): Promise<Candle[]> {
+  const wanted = Math.min(Math.max(count, 1), 5000);
   return withDeriv(null, async (s) => {
-    const res = await s.send<{ candles: Json[] }>({
-      ticks_history: symbol,
-      end: "latest",
-      count: Math.min(Math.max(count, 1), 5000),
-      style: "candles",
-      granularity,
-      adjust_start_time: 1,
-    });
-    return (res.candles ?? []).map((c) => ({
-      epoch: Number(c.epoch),
-      open: Number(c.open),
-      high: Number(c.high),
-      low: Number(c.low),
-      close: Number(c.close),
-    }));
+    let candles: Candle[] = [];
+    let end: number | "latest" = "latest";
+    while (candles.length < wanted) {
+      const requested = Math.min(CANDLES_PER_REQUEST, wanted - candles.length);
+      const res: { candles?: Json[] } = await s.send<{ candles?: Json[] }>({
+        ticks_history: symbol,
+        end,
+        count: requested,
+        style: "candles",
+        granularity,
+        ...(end === "latest" ? { adjust_start_time: 1 } : {}),
+      });
+      const page = (res.candles ?? []).map((c) => ({
+        epoch: Number(c.epoch),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+      }));
+      const older = page.filter((c) => !candles.length || c.epoch < candles[0]!.epoch);
+      if (!older.length) break; // no more history
+      candles = [...older, ...candles];
+      end = older[0]!.epoch - 1;
+      if (page.length < requested) break; // reached the start of the available history
+    }
+    return candles;
   });
 }
