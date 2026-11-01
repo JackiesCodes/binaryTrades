@@ -14,7 +14,7 @@ export function appUrl(request?: Request): string {
   const configured = process.env.APP_URL?.replace(/\/$/, "");
   if (configured) return configured;
   if (request) return new URL(request.url).origin;
-  return "https://binarytrades.vercel.app";
+  return "https://binarytrades.trading";
 }
 
 function layout(title: string, body: string, cta: { label: string; url: string }): string {

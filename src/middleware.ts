@@ -22,8 +22,20 @@ const PUBLIC_PAGES = new Set(["/", "/forgot-password", "/reset-password", "/veri
 // Signed-in visitors skip these and go straight to their dashboard.
 const AUTH_PAGES = new Set(["/login", "/signup"]);
 
+// When PRIMARY_HOST is set (e.g. binarytrades.trading), people on the old address are sent
+// there, while machine endpoints (MT5 bridges, TradingView webhooks, the scheduler) keep
+// working on the old address so nothing breaks mid-move.
+const PRIMARY_HOST = process.env.PRIMARY_HOST;
+const LEGACY_HOSTS = new Set(["binarytrades.vercel.app"]);
+const MACHINE_PREFIXES = ["/api/", "/downloads/"];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host")?.split(":")[0] ?? "";
+  if (PRIMARY_HOST && LEGACY_HOSTS.has(host) && !MACHINE_PREFIXES.some((p) => pathname.startsWith(p))) {
+    const url = new URL(request.nextUrl.pathname + request.nextUrl.search, `https://${PRIMARY_HOST}`);
+    return NextResponse.redirect(url, 308);
+  }
   if (PUBLIC_PAGES.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   if (!isAuthConfigured()) {

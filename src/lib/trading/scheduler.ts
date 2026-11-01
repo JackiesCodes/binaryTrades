@@ -20,7 +20,7 @@ export function schedulerWanted(): boolean {
 }
 
 export function tickUrl(): string {
-  const base = (process.env.APP_URL ?? "https://binarytrades.vercel.app").replace(/\/$/, "");
+  const base = (process.env.APP_URL ?? "https://binarytrades.trading").replace(/\/$/, "");
   return `${base}/api/cron/tick?key=${encodeURIComponent(process.env.CRON_SECRET ?? "")}`;
 }
 

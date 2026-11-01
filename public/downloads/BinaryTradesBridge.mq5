@@ -22,7 +22,7 @@
 
 #include <Trade/Trade.mqh>
 
-input string InpServerUrl       = "https://binarytrades.vercel.app"; // binaryTrades server URL
+input string InpServerUrl       = "https://binarytrades.trading"; // binaryTrades server URL
 input string InpBridgeKey       = "";                      // Bridge key (from the Brokers page)
 input int    InpPollSeconds     = 3;                       // Sync interval (seconds)
 input int    InpDefaultSlPoints = 300;                     // Stop (points) when a signal has none

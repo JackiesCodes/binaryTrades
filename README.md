@@ -3,9 +3,12 @@
 One dashboard to run, watch and risk-manage trading bots on **Exness
 (MetaTrader 5)**, **Deriv** and **TradingView**.
 
-Live at **https://binarytrades.vercel.app** (Vercel project `binarytrades`,
+Live at **https://binarytrades.trading** (Vercel project `binarytrades`,
 deployed from `main` of `JackiesCodes/binaryTrades`). Use that address for the
-MT5 bridge Server URL, TradingView webhooks and the cron scheduler.
+MT5 bridge Server URL and TradingView webhooks. The old
+binarytrades.vercel.app address still answers machine requests (`/api/…`,
+`/downloads/…`) and sends people to the new address. Account emails come from
+`no-reply@binarytrades.trading` (Resend).
 
 - **Bots**: built-in strategy bots that trade on their own, or TradingView
   bots that execute your Pine Script alerts. Start, pause, edit, buy/sell/close

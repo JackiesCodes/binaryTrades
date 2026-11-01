@@ -16,7 +16,7 @@ const fontMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.APP_URL ?? "https://binarytrades.vercel.app"),
+  metadataBase: new URL(process.env.APP_URL ?? "https://binarytrades.trading"),
   title: "binaryTrades — Automated trading with risk control",
   description:
     "Connect Deriv and MetaTrader 5 accounts, run strategy bots and your own scripts, execute TradingView alerts, and enforce risk limits — from one dashboard.",
