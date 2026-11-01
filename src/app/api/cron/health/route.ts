@@ -50,7 +50,9 @@ export async function GET(request: Request) {
       report.database = await sql`
         select relname as table, n_live_tup as rows, n_tup_ins as inserted, n_tup_del as deleted
         from pg_stat_user_tables where schemaname = 'public' order by relname`;
-      report.database_host = new URL(dbUrl).hostname.split(".").slice(-3).join(".");
+      // Supabase project ref of each connection, to confirm both point at the same database.
+      const u = new URL(dbUrl);
+      report.database_project = u.username.split(".")[1] ?? u.hostname.split(".")[1] ?? null;
       report.rest_host = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname : null;
     } catch (error) {
       report.database_error = (error as Error).message;
