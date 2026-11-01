@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import postgres from "postgres";
 
 import { jsonError } from "@/lib/http";
 import { getStore } from "@/lib/trading/store";
@@ -38,6 +39,24 @@ export async function GET(request: Request) {
     }));
   } catch (error) {
     report.storage_error = (error as Error).message;
+  }
+
+  // Direct database view (bypasses the Supabase REST API): row counts and
+  // Postgres's own insert/delete counters per table.
+  const dbUrl = process.env.POSTGRES_URL_NON_POOLING ?? process.env.DATABASE_URL;
+  if (dbUrl) {
+    const sql = postgres(dbUrl, { ssl: "require", max: 1, prepare: false, onnotice: () => {} });
+    try {
+      report.database = await sql`
+        select relname as table, n_live_tup as rows, n_tup_ins as inserted, n_tup_del as deleted
+        from pg_stat_user_tables where schemaname = 'public' order by relname`;
+      report.database_host = new URL(dbUrl).hostname.split(".").slice(-3).join(".");
+      report.rest_host = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname : null;
+    } catch (error) {
+      report.database_error = (error as Error).message;
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
   }
   return NextResponse.json(report);
 }
