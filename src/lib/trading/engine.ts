@@ -3,7 +3,8 @@ import "server-only";
 import { derivCandles, derivClose, derivOpen, derivSnapshot, type Candle, type DerivCredentials } from "@/lib/brokers/deriv";
 import { decryptSecret } from "@/lib/secrets";
 import { atrSeries, getStrategy } from "@/lib/strategies";
-import { SCRIPT_STRATEGY_ID, scriptStrategy } from "@/lib/strategies/script";
+import { resolveLevels } from "@/lib/strategies/backtest";
+import { SCRIPT_STRATEGY_ID, scriptStrategy, type ScriptContext } from "@/lib/strategies/script";
 import { advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
 import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
 import type { Book, Bot, BrokerAccount, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
@@ -150,7 +151,8 @@ export async function openTrade(
   let sl = req.sl ?? null;
   let tp = req.tp ?? null;
   if (price && sl === null && req.stopDistance) sl = price - dir * req.stopDistance;
-  if (price && tp === null && req.stopDistance && req.rr) tp = price + dir * req.rr * req.stopDistance;
+  // Reward:risk targets are measured from the actual stop (the strategy's own, or the ATR stop).
+  if (price && tp === null && req.rr && sl !== null) tp = price + dir * req.rr * Math.abs(price - sl);
   const stopDistance = price && sl !== null ? Math.abs(price - sl) : null;
 
   const base: Trade = {
@@ -488,17 +490,50 @@ export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
   }
 }
 
+/** What a script sees about its live account and position. */
+export async function scriptContext(bot: Bot): Promise<ScriptContext> {
+  const store = forUser(bot.user_id);
+  const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
+  const [open] = await activeTrades(bot.user_id, { bot_id: bot.id });
+  return {
+    live: true,
+    account: broker
+      ? { broker: broker.kind, balance: broker.balance, equity: broker.equity, currency: broker.currency, is_demo: broker.is_demo }
+      : null,
+    broker_position: open ? { side: open.side, entry: open.entry_price, size: open.size, pnl: open.pnl } : null,
+  };
+}
+
+/**
+ * Closed candles for a bot: from its own MT5 broker when price_source is "broker"
+ * (null while the bridge EA hasn't sent them yet), otherwise from Deriv.
+ */
+export async function botCandles(bot: Bot, count = 400): Promise<Candle[] | null> {
+  if (bot.price_source === "broker" && bot.broker_account_id) {
+    const broker = await forUser(bot.user_id).brokers.get(bot.broker_account_id);
+    if (broker?.kind === "mt5") {
+      const data = await getStore().market_data.get(marketDataId(broker.id, bot.symbol, bot.timeframe));
+      if (!data?.bars.length) return null;
+      // The EA sends closed bars only, stamped in broker server time.
+      return data.bars.slice(-count).map(([epoch, open, high, low, close]) => ({ epoch, open, high, low, close }));
+    }
+  }
+  return closedCandles(await deps.candles(bot.data_symbol, bot.timeframe, count), bot.timeframe);
+}
+
+export function marketDataId(accountId: string, symbol: string, timeframe: number): string {
+  return `${accountId}:${symbol}:${timeframe}`;
+}
+
 export async function runBuiltinBot(bot: Bot): Promise<string> {
   const store = forUser(bot.user_id);
-  const def =
-    bot.strategy?.id === SCRIPT_STRATEGY_ID && bot.strategy.code
-      ? await scriptStrategy(bot.strategy.code, bot.name)
-      : bot.strategy
-        ? getStrategy(bot.strategy.id)
-        : undefined;
+  const isScript = bot.strategy?.id === SCRIPT_STRATEGY_ID && Boolean(bot.strategy.code);
+  const script = isScript ? await scriptStrategy(bot.strategy!.code!, bot.name, await scriptContext(bot)) : null;
+  const def = script ?? (bot.strategy ? getStrategy(bot.strategy.id) : undefined);
   if (!def || !bot.strategy) return "no strategy";
 
-  const candles = closedCandles(await deps.candles(bot.data_symbol, bot.timeframe, 400), bot.timeframe);
+  const candles = await botCandles(bot);
+  if (!candles) return "waiting for MT5 prices";
   const last = candles.at(-1);
   if (!last || candles.length < 210) return "not enough data";
   if (bot.last_bar_epoch === last.epoch) return "waiting for next bar";
@@ -506,8 +541,10 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
 
   const params = bot.strategy.params;
   let positions: Int8Array;
+  let levels: ReturnType<NonNullable<typeof def.levels>> | undefined;
   try {
     positions = def.positions(candles, params);
+    levels = def.levels?.(candles, params);
   } catch (error) {
     if (def.id !== SCRIPT_STRATEGY_ID) throw error;
     // A broken script must not keep failing every bar: pause the bot and say why.
@@ -518,6 +555,13 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
   }
   const want = positions[positions.length - 1];
   const prev = positions[positions.length - 2];
+  // Scripts that also handle TradingView alerts act on bars only when onBar changes its mind,
+  // so a position opened by an alert isn't closed just because onBar is flat.
+  if (script) {
+    const run = script.run(candles, params);
+    if (!run.hasOnBar) return "alerts only";
+    if (run.hasOnAlert && want === prev) return "hold";
+  }
   const open = await activeTrades(bot.user_id, { bot_id: bot.id });
   const current = open[0];
   const currentDir = current ? (current.side === "buy" ? 1 : -1) : 0;
@@ -528,10 +572,16 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
   }
   if (want !== 0 && want !== prev && want !== currentDir) {
     const atr = atrSeries(candles).at(-1)!;
+    // The script's own stop / target, when it set them on the correct side of the price.
+    const own = resolveLevels(want as 1 | -1, last.close, levels?.get(candles.length - 1));
     await processSignal({
       bot,
       source: "builtin",
       action: want === 1 ? "buy" : "sell",
+      // Bots on broker prices measure stop and target from the broker's own last close.
+      price: bot.price_source === "broker" ? last.close : undefined,
+      sl: own.stop,
+      tp: own.target,
       stopDistance: atr * (params.atr_mult ?? 2),
       rr: params.rr ?? 0,
     });

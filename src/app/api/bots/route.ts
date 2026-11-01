@@ -23,6 +23,8 @@ const botInputSchema = z.object({
   strategy_params: z.record(z.coerce.number()).optional(),
   risk_percent: z.coerce.number().min(0.1).max(5).default(1),
   deriv_multiplier: z.coerce.number().int().min(1).max(5000).default(100),
+  /** "broker": read candles from the bot's own MT5 account (bridge EA). */
+  price_source: z.enum(["deriv", "broker"]).default("deriv"),
   /** JavaScript source, for strategy_id "script". */
   script: z.string().max(MAX_SCRIPT_LENGTH).optional(),
   /** Start trading straight away instead of creating the bot paused. */
@@ -69,6 +71,7 @@ export const POST = withUser(async (user, request) => {
     broker_account_id: broker.id,
     symbol: input.symbol,
     data_symbol: input.data_symbol || guessDataSymbol(input.symbol),
+    price_source: broker.kind === "mt5" ? input.price_source : "deriv",
     timeframe: input.timeframe,
     strategy,
     status: startNow ? "running" : "paused",

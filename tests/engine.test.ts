@@ -63,6 +63,7 @@ function makeBot(patch: Partial<Bot> = {}): Bot {
     broker_account_id: null,
     symbol: "frxEURUSD",
     data_symbol: "frxEURUSD",
+    price_source: "deriv",
     timeframe: 3600,
     strategy: null,
     status: "running",
@@ -185,7 +186,7 @@ describe("MT5 bridge", () => {
 
   const report: Mt5Report = {
     login: "123", server: "Exness-MT5Trial", company: "Exness", currency: "USD", balance: 1000, equity: 1000, is_demo: true,
-    positions: [], deals: [], results: [],
+    positions: [], deals: [], results: [], candles: [],
   };
 
   it("queues an order, links the fill and books the close", async () => {
@@ -223,6 +224,45 @@ describe("MT5 bridge", () => {
     await getStore().brokers.update(account.id, { status: "waiting" });
     expect(await bookEquity(U, "demo")).toBe(1000);
     expect(await bookEquity(U, "real")).toBe(0);
+  });
+
+  it("asks the EA for broker candles and trades a script on them, with the script's own stop", async () => {
+    const account = await mt5Account();
+    const bot = makeBot({
+      broker_account_id: account.id,
+      symbol: "EURUSDm",
+      price_source: "broker",
+      source: "builtin",
+      timeframe: 3600,
+      strategy: {
+        id: "script",
+        params: { atr_mult: 2, rr: 2 },
+        code: `function onBar(i) { if (i === bars.length - 1) return { action: "buy", stop: close[i] - 0.01 }; }`,
+      },
+    });
+    await getStore().bots.insert(bot);
+    expect(await runBuiltinBot(bot)).toBe("waiting for MT5 prices");
+
+    // The sync hands the EA a candles request…
+    const lines = (await ingestMt5Report(account, report)).split("\n").filter(Boolean);
+    const request = lines.find((l) => l.split("|")[1] === "candles")!;
+    expect(request.split("|").slice(1, 5)).toEqual(["candles", "EURUSDm", "3600", "400"]);
+    // …and doesn't ask again straight away.
+    expect(await ingestMt5Report(account, report)).not.toContain("|candles|");
+
+    // The EA answers with closed bars in broker time (UTC+3 here).
+    const now = Math.floor(Date.now() / 1000);
+    const serverNow = now + 3 * 3600;
+    const last = Math.floor(serverNow / 3600) * 3600 - 3600;
+    const bars = Array.from({ length: 300 }, (_, k) => [last - (299 - k) * 3600, 1.1, 1.101, 1.099, 1.1] as [number, number, number, number, number]);
+    await ingestMt5Report(account, { ...report, candles: [{ command_id: request.split("|")[0]!, symbol: "EURUSDm", timeframe: 3600, server_time: serverNow, bars }] });
+
+    expect(await runBuiltinBot(bot)).toBe("buy");
+    const [trade] = await activeTrades(U, { bot_id: bot.id });
+    expect(trade!.sl).toBeCloseTo(1.09); // the script's stop, not ATR
+    expect(trade!.tp).toBeCloseTo(1.12); // 2R from that stop
+    const [cmd] = await getStore().commands.all({ eq: { type: "open" } });
+    expect(cmd!.payload).toMatchObject({ symbol: "EURUSDm", side: "buy" });
   });
 
   it("tracks positions from other EAs as external trades", async () => {

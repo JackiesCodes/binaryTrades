@@ -18,6 +18,7 @@ const patchSchema = z.object({
   risk_percent: z.coerce.number().min(0.1).max(5).optional(),
   deriv_multiplier: z.coerce.number().int().min(1).max(5000).optional(),
   timeframe: z.coerce.number().int().positive().optional(),
+  price_source: z.enum(["deriv", "broker"]).optional(),
   strategy_params: z.record(z.coerce.number()).optional(),
   /** New source code for a script bot. */
   script: z.string().min(1).max(MAX_SCRIPT_LENGTH).optional(),

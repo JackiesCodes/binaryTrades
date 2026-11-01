@@ -286,6 +286,39 @@ alter table users enable row level security;
 alter table auth_tokens enable row level security;
 `,
   },
+  {
+    file: "0006_broker_prices.sql",
+    sql: `-- 0006: bots can read candles from their own MT5 broker (via the bridge EA)
+-- instead of Deriv's market data. Idempotent: safe to run more than once.
+
+alter table bots add column if not exists price_source text not null default 'deriv';
+alter table bots drop constraint if exists bots_price_source_check;
+alter table bots add constraint bots_price_source_check check (price_source in ('deriv', 'broker'));
+
+-- The bridge EA can be asked for candles.
+alter table commands drop constraint if exists commands_type_check;
+alter table commands add constraint commands_type_check check (type in ('open', 'close', 'close_all', 'candles'));
+
+-- Latest closed candles per MT5 account, symbol and timeframe, as sent by the bridge EA.
+create table if not exists market_data (
+  id text primary key,
+  user_id text not null references users (id) on delete cascade,
+  account_id text not null references brokers (id) on delete cascade,
+  symbol text not null,
+  timeframe integer not null,
+  -- [[epoch, open, high, low, close], ...] oldest first; epochs in broker server time
+  bars jsonb not null default '[]',
+  -- broker server time minus UTC, in seconds
+  server_offset integer not null default 0,
+  error text,
+  requested_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+create index if not exists market_data_account_idx on market_data (account_id);
+
+alter table market_data enable row level security;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -298,4 +331,5 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
   "0004_owner_profile.sql": "select to_regclass('public.profile') is not null as done",
   "0005_multi_user.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'equity' and column_name = 'user_id') as done",
+  "0006_broker_prices.sql": "select to_regclass('public.market_data') is not null as done",
 };

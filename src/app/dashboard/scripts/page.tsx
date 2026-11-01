@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, TriangleAlert } from "lucide-react";
+import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, TriangleAlert, Webhook } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils";
 interface CheckResult {
   inputs: Record<string, number>;
   logs: string[];
+  has_on_alert?: boolean;
+  has_on_bar?: boolean;
 }
 type TestResult = CheckResult & BacktestResult & { range: { from: number; to: number; bars: number } };
 
@@ -273,6 +275,7 @@ function ScriptStudio() {
           </Panel>
 
           {check && <ScriptOutput check={check} test={test} dataSymbol={dataSymbol} timeframe={timeframe} />}
+          {/function\s+onAlert\s*\(/.test(code) && <AlertTester code={code} params={params} dataSymbol={dataSymbol} timeframe={timeframe} />}
         </div>
 
         <div className="min-w-0 space-y-5">
@@ -443,6 +446,7 @@ function DeployPanel({
   const broker = brokers.find((b) => b.id === brokerId);
   const [mt5Symbol, setMt5Symbol] = useState("");
   const [mt5Edited, setMt5Edited] = useState(false);
+  const [priceSource, setPriceSource] = useState<"broker" | "deriv">("broker");
   const [risk, setRisk] = useState(1);
   const [multiplier, setMultiplier] = useState(100);
   const [startNow, setStartNow] = useState(true);
@@ -495,6 +499,7 @@ function DeployPanel({
         timeframe,
         risk_percent: risk,
         deriv_multiplier: multiplier,
+        price_source: isMt5 ? priceSource : "deriv",
         start: startNow,
       });
       await refresh();
@@ -532,7 +537,22 @@ function DeployPanel({
           </div>
         </Field>
         {isMt5 && (
-          <Field label="MT5 symbol" hint="Exactly as Market Watch shows it, e.g. EURUSDm. Signals use the market chosen on the left.">
+          <Field
+            label="Price feed"
+            hint={
+              priceSource === "broker"
+                ? "The script reads this MT5 account's own candles (needs bridge EA v2). Tests on the left use Deriv's history."
+                : "The script reads Deriv's candles for the market chosen on the left."
+            }
+          >
+            <select className={selectClass} value={priceSource} onChange={(e) => setPriceSource(e.target.value as "broker" | "deriv")}>
+              <option value="broker">MT5 broker prices (recommended)</option>
+              <option value="deriv">Deriv market data</option>
+            </select>
+          </Field>
+        )}
+        {isMt5 && (
+          <Field label="MT5 symbol" hint="Exactly as Market Watch shows it, e.g. EURUSDm.">
             <Input
               value={mt5Symbol}
               placeholder="e.g. EURUSDm"
@@ -554,8 +574,9 @@ function DeployPanel({
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Trades {DATA_SYMBOLS.find((d) => d.value === dataSymbol)?.label ?? dataSymbol} on {timeframeLabel(timeframe)} candles, with the stop and
-          target set on the left.
+          Trades {isMt5 ? mt5Symbol || "the MT5 symbol" : DATA_SYMBOLS.find((d) => d.value === dataSymbol)?.label ?? dataSymbol} on{" "}
+          {timeframeLabel(timeframe)} candles. Stops come from your script, or the stop setting on the left. If the script has onAlert, find its
+          TradingView webhook on the bot card after creating it.
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={startNow} onChange={(e) => setStartNow(e.target.checked)} className="h-4 w-4 accent-[#85BB65]" />
@@ -627,5 +648,83 @@ function ScriptBotRow({ bot, broker, active }: { bot: Bot; broker: PublicBroker 
         </Button>
       </div>
     </div>
+  );
+}
+
+function AlertTester({ code, params, dataSymbol, timeframe }: { code: string; params: Record<string, number>; dataSymbol: string; timeframe: number }) {
+  const [alertJson, setAlertJson] = useState('{ "action": "buy", "price": 0 }');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{
+    logs: string[];
+    alert_decision: { action: string | null; stop: number | null; target: number | null; last_close: number | null; last_time: number | null };
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      let alert: Record<string, unknown>;
+      try {
+        alert = JSON.parse(alertJson) as Record<string, unknown>;
+      } catch {
+        throw new Error("The alert must be valid JSON, like { \"action\": \"buy\" }.");
+      }
+      setResult(await api("/api/scripts/test", "POST", { code, params, data_symbol: dataSymbol, timeframe, alert }));
+    } catch (e) {
+      setError((e as Error).message);
+      setResult(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const d = result?.alert_decision;
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          <Webhook className="h-4 w-4" /> Test a TradingView alert
+        </span>
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        Sends a sample alert through your <code className="text-foreground">onAlert(alert, i)</code> on the latest {timeframeLabel(timeframe)} candles. Add
+        any fields your TradingView alert will send.
+      </p>
+      <textarea
+        value={alertJson}
+        onChange={(e) => setAlertJson(e.target.value)}
+        spellCheck={false}
+        rows={3}
+        aria-label="Sample alert JSON"
+        className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 p-3 font-mono text-base text-foreground outline-none focus:border-profit/40 sm:text-xs"
+      />
+      <Button variant="outline" onClick={run} disabled={busy} className="mt-2">
+        {busy ? "Running…" : "Run onAlert"}
+      </Button>
+      {error && <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-loss/10 px-3 py-2 font-mono text-xs text-loss">{error}</pre>}
+      {d && (
+        <div className="mt-3 rounded-xl bg-white/[0.03] p-3 text-sm">
+          {d.action ? (
+            <span>
+              Decision:{" "}
+              <b className={d.action === "buy" ? "text-profit" : d.action === "sell" ? "text-loss" : "text-foreground"}>{d.action.toUpperCase()}</b>
+              {d.stop !== null && <> · stop {price(d.stop)}</>}
+              {d.target !== null && <> · target {price(d.target)}</>}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Decision: ignore this alert</span>
+          )}
+          {d.last_close !== null && (
+            <span className="block text-xs text-muted-foreground">
+              Latest close {price(d.last_close)}
+              {d.last_time ? ` at ${new Date(d.last_time * 1000).toLocaleString()}` : ""}
+            </span>
+          )}
+          {result.logs.length > 0 && <pre className="mt-2 font-mono text-xs text-muted-foreground">{result.logs.join("\n")}</pre>}
+        </div>
+      )}
+    </Panel>
   );
 }

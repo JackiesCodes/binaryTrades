@@ -13,6 +13,7 @@ import type {
   BrokerAccount,
   EquityPoint,
   EventLog,
+  MarketData,
   Mt5Command,
   Settings,
   Signal,
@@ -59,9 +60,10 @@ export interface Store {
   equity: Collection<EquityPoint>;
   users: Collection<User>;
   auth_tokens: Collection<AuthToken>;
+  market_data: Collection<MarketData>;
 }
 
-const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens"] as const;
+const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens", "market_data"] as const;
 type TableName = (typeof TABLES)[number];
 
 // Logs, signals and equity points grow forever; the file backend keeps the newest N.
@@ -124,6 +126,9 @@ class FileBackend {
         if (row.user_id === undefined) {
           row.user_id = "owner";
           legacy = true;
+        }
+        if (table === "bots" && (row as { price_source?: string }).price_source === undefined) {
+          (row as { price_source?: string }).price_source = "deriv";
         }
       }
     }
@@ -305,6 +310,7 @@ function buildStore(): Store {
       equity: c("equity"),
       users: c("users"),
       auth_tokens: c("auth_tokens"),
+      market_data: c("market_data"),
     };
   }
 
@@ -321,6 +327,7 @@ function buildStore(): Store {
     equity: file.collection("equity"),
     users: file.collection("users"),
     auth_tokens: file.collection("auth_tokens"),
+    market_data: file.collection("market_data"),
   };
 }
 

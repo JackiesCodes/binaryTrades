@@ -69,6 +69,7 @@ export function runBacktest(
   const from = Math.max(options.fromIndex ?? 1, 2);
   const to = Math.min(options.toIndex ?? candles.length, candles.length);
   const desired = strategy.positions(candles, params);
+  const levels = strategy.levels?.(candles, params);
   const atr = atrSeries(candles);
   const atrMult = params.atr_mult ?? 2;
   const rr = params.rr ?? 0;
@@ -104,15 +105,16 @@ export function runBacktest(
     if (pos && want !== pos.dir) close(bar.open, bar.epoch, "signal");
 
     if (!pos && want !== 0 && want !== desired[i - 2]!) {
-      const stopDist = atr[i - 1]! * atrMult;
+      const dir = want as 1 | -1;
+      const own = resolveLevels(dir, bar.open, levels?.get(i - 1));
+      const stopDist = own.stop !== null ? Math.abs(bar.open - own.stop) : atr[i - 1]! * atrMult;
       if (Number.isFinite(stopDist) && stopDist > 0 && balance > 0) {
         const risk = (balance * options.riskPercent) / 100;
-        const dir = want as 1 | -1;
         pos = {
           dir,
           entry: bar.open,
-          stop: bar.open - dir * stopDist,
-          target: rr > 0 ? bar.open + dir * rr * stopDist : null,
+          stop: own.stop ?? bar.open - dir * stopDist,
+          target: own.target ?? (rr > 0 ? bar.open + dir * rr * stopDist : null),
           units: risk / stopDist,
           risk,
           entryEpoch: bar.epoch,
@@ -279,4 +281,18 @@ export function optimise(
   }
 
   return results.sort((a, b) => (b.oos_score === a.oos_score ? 0 : b.oos_score - a.oos_score));
+}
+
+/** A strategy's own stop / target prices, kept only when they are on the correct side of the entry. */
+export function resolveLevels(
+  dir: 1 | -1,
+  entry: number,
+  levels: { stop: number | null; target: number | null } | undefined,
+): { stop: number | null; target: number | null } {
+  const stop = levels?.stop ?? null;
+  const target = levels?.target ?? null;
+  return {
+    stop: stop !== null && (entry - stop) * dir > 0 ? stop : null,
+    target: target !== null && (target - entry) * dir > 0 ? target : null,
+  };
 }

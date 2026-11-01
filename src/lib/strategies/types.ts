@@ -25,4 +25,9 @@ export interface StrategyDefinition {
    * Must only use data up to and including bar i (no look-ahead).
    */
   positions(candles: Candle[], params: Record<string, number>): Int8Array;
+  /**
+   * Optional stop / target prices for trades the strategy opens on bar i (scripts can set
+   * them). Missing or invalid values fall back to the ATR stop and reward:risk target.
+   */
+  levels?(candles: Candle[], params: Record<string, number>): Map<number, { stop: number | null; target: number | null }>;
 }

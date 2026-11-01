@@ -132,6 +132,7 @@ function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: () => v
   const [strategyParams, setStrategyParams] = useState<Record<string, number>>({ ...defaultParams(def), ...presetParams });
   const [risk, setRisk] = useState(1);
   const [multiplier, setMultiplier] = useState(100);
+  const [priceSource, setPriceSource] = useState<"broker" | "deriv">("broker");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -155,6 +156,7 @@ function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: () => v
         broker_account_id: brokerId,
         symbol,
         data_symbol: isMt5 ? dataSymbol : symbol,
+        price_source: isMt5 && source === "builtin" ? priceSource : "deriv",
         timeframe,
         strategy_id: source === "builtin" ? strategyId : undefined,
         strategy_params: source === "builtin" ? strategyParams : undefined,
@@ -225,7 +227,18 @@ function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: () => v
                 }}
               />
             </Field>
-            <Field label="Price feed" hint="Market data the strategy reads its signals from.">
+            {source === "builtin" && (
+              <Field
+                label="Price feed"
+                hint={priceSource === "broker" ? "This MT5 account's own candles (needs bridge EA v2)." : "Deriv market data for the market below."}
+              >
+                <select className={selectClass} value={priceSource} onChange={(e) => setPriceSource(e.target.value as "broker" | "deriv")}>
+                  <option value="broker">MT5 broker prices (recommended)</option>
+                  <option value="deriv">Deriv market data</option>
+                </select>
+              </Field>
+            )}
+            <Field label="Deriv market" hint="Used for prices when the price feed is Deriv, and as a fallback price.">
               <select className={selectClass} value={dataSymbol} onChange={(e) => setDataSymbol(e.target.value)}>
                 {!DATA_SYMBOLS.some((d) => d.value === dataSymbol) && <option value={dataSymbol}>{dataSymbol}</option>}
                 {DATA_SYMBOLS.map((d) => (
@@ -432,7 +445,7 @@ function BotCard({ bot, brokers }: { bot: Bot; brokers: PublicBroker[] }) {
             <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit script</Link>
           </Button>
         )}
-        {bot.source === "tradingview" && (
+        {(bot.source === "tradingview" || /function\s+onAlert\s*\(/.test(bot.strategy?.code ?? "")) && (
           <Button size="sm" variant="ghost" onClick={() => setShowWebhook((v) => !v)}>
             {showWebhook ? "Hide setup" : "TradingView setup"}
           </Button>
@@ -502,6 +515,7 @@ function WebhookSetup({ bot }: { bot: Bot }) {
     null,
     0,
   ).replace('"{{close}}"', "{{close}}");
+  const isScript = bot.strategy?.id === "script";
 
   return (
     <div className="mt-4 space-y-3 rounded-xl border border-profit/20 bg-profit/[0.04] p-3 text-sm">
@@ -515,6 +529,12 @@ function WebhookSetup({ bot }: { bot: Bot }) {
           For indicator alerts (not strategies), replace <code>{"{{strategy.order.action}}"}</code> with <code>buy</code>, <code>sell</code> or{" "}
           <code>close</code>. You can add <code>&quot;sl&quot;</code> and <code>&quot;tp&quot;</code> prices too.
         </li>
+        {isScript && (
+          <li>
+            Your script&apos;s <code>onAlert(alert, i)</code> decides what each alert does. Any extra fields you add to the message (for example{" "}
+            <code>&quot;rsi&quot;: {"{{plot_0}}"}</code>) arrive in <code>alert</code>.
+          </li>
+        )}
       </ol>
       <CopyRow label="Webhook URL" value={url} />
       <CopyRow label="Alert message" value={message} />

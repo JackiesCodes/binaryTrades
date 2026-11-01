@@ -2,9 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
-import { adjustBaseline, bookOf } from "@/lib/trading/engine";
+import { adjustBaseline, bookOf, marketDataId } from "@/lib/trading/engine";
 import { forUser, getStore, log, newId, nowIso } from "@/lib/trading/store";
-import type { BrokerAccount, Mt5Command, Trade } from "@/lib/trading/types";
+import type { Bot, BrokerAccount, MarketData, Mt5Command, Trade } from "@/lib/trading/types";
 
 /**
  * Server side of the MetaTrader 5 bridge (public/downloads/BinaryTradesBridge.mq5).
@@ -16,6 +16,10 @@ import type { BrokerAccount, Mt5Command, Trade } from "@/lib/trading/types";
  * MQL5):
  *
  *   id|type|symbol|side|risk_money|sl|tp|magic|ticket|comment
+ *
+ * A "candles" command asks the EA (v2+) for closed bars, sent back in the next report:
+ *
+ *   id|candles|symbol|timeframe_seconds|count|||||
  */
 
 const num = z.coerce.number();
@@ -66,6 +70,20 @@ export const mt5ReportSchema = z.object({
       }),
     )
     .default([]),
+  /** Closed candles requested with a "candles" command (bridge EA v2+). */
+  candles: z
+    .array(
+      z.object({
+        command_id: z.string(),
+        symbol: z.string(),
+        timeframe: z.coerce.number().int().positive(),
+        /** Broker server time (TimeCurrent) when the bars were read, as a Unix timestamp. */
+        server_time: z.coerce.number(),
+        bars: z.array(z.tuple([num, num, num, num, num])).max(2000),
+        error: z.string().optional(),
+      }),
+    )
+    .default([]),
 });
 
 export type Mt5Report = z.infer<typeof mt5ReportSchema>;
@@ -93,6 +111,10 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
     const command = await commands.get(r.command_id);
     if (!command || command.account_id !== account.id) continue;
     await commands.update(command.id, { status: r.ok ? "done" : "failed", result: r });
+    if (command.type === "candles") {
+      if (!r.ok) await recordCandleError(account, command, r.error ?? "The bridge EA could not read candles");
+      continue;
+    }
     if (!command.trade_id || command.type !== "open") {
       if (!r.ok) await log("error", `MT5 ${command.type} failed: ${r.error ?? "unknown error"}`, { user_id: userId });
       continue;
@@ -114,6 +136,22 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
       await store.trades.update(trade.id, { status: "rejected", close_reason: r.error ?? "Rejected by MT5", closed_at: nowIso() });
       await log("error", `MT5 rejected ${trade.symbol}: ${r.error ?? "unknown error"}`, { user_id: userId, bot_id: trade.bot_id });
     }
+  }
+
+  // 1b. Candles the EA sent for "candles" commands.
+  for (const c of report.candles) {
+    const command = await commands.get(c.command_id);
+    if (!command || command.account_id !== account.id || command.type !== "candles") continue;
+    await commands.update(command.id, { status: c.error ? "failed" : "done", result: { bars: c.bars.length, error: c.error ?? null } });
+    if (c.error || !c.bars.length) {
+      await recordCandleError(account, command, c.error ?? "No candles returned — is the symbol in Market Watch?");
+      continue;
+    }
+    await saveMarketData(account, c.symbol, c.timeframe, {
+      bars: c.bars.slice().sort((a, b) => a[0] - b[0]),
+      server_offset: Math.round(c.server_time - Date.now() / 1000),
+      error: null,
+    });
   }
 
   // 2. Reconcile positions.
@@ -199,7 +237,10 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
     await log("warn", `MT5 ${c.type} command was not confirmed by the bridge within 3 minutes`, { user_id: userId, bot_id: trade?.bot_id });
   }
 
-  // 5. Hand over queued commands.
+  // 5. Ask for fresh candles for running bots that read prices from this account.
+  await requestCandles(account);
+
+  // 6. Hand over queued commands.
   const queued = await commands.all({
     eq: { account_id: account.id, status: "queued" },
     order: { field: "created_at", ascending: true },
@@ -214,5 +255,79 @@ function clean(value: unknown): string {
 
 export function formatCommand(c: Mt5Command): string {
   const p = c.payload as Record<string, unknown>;
+  if (c.type === "candles") return [c.id, c.type, p.symbol, p.timeframe, p.count, "", "", "", "", ""].map(clean).join("|");
   return [c.id, c.type, p.symbol, p.side, p.risk_money, p.sl, p.tp, p.magic, p.ticket, p.comment].map(clean).join("|");
+}
+
+// ---------------------------------------------------------------------------
+// Broker prices for bots with price_source "broker"
+
+const CANDLE_COUNT = 400;
+const REQUEST_EVERY_MS = 30_000;
+
+async function saveMarketData(account: BrokerAccount, symbol: string, timeframe: number, patch: Partial<MarketData>) {
+  const store = getStore();
+  const id = marketDataId(account.id, symbol, timeframe);
+  const existing = await store.market_data.get(id);
+  if (existing) {
+    await store.market_data.update(id, { ...patch, updated_at: nowIso() });
+  } else {
+    await store.market_data.insert({
+      id,
+      user_id: account.user_id,
+      account_id: account.id,
+      symbol,
+      timeframe,
+      bars: [],
+      server_offset: 0,
+      error: null,
+      requested_at: null,
+      updated_at: nowIso(),
+      ...patch,
+    });
+  }
+}
+
+async function recordCandleError(account: BrokerAccount, command: Mt5Command, error: string) {
+  const p = command.payload as { symbol?: string; timeframe?: number };
+  if (!p.symbol || !p.timeframe) return;
+  const message = /unknown command/.test(error)
+    ? "Your MT5 bridge EA is out of date — download the latest version from the Brokers page to use MT5 prices."
+    : error;
+  await saveMarketData(account, p.symbol, p.timeframe, { error: message });
+  await log("warn", `MT5 prices for ${p.symbol}: ${message}`, { user_id: account.user_id });
+}
+
+/** True when a newer closed bar should exist than the latest one stored. */
+export function candlesDue(data: MarketData | null, timeframe: number, now = Date.now()): boolean {
+  if (!data?.bars.length) return true;
+  const lastEpoch = data.bars[data.bars.length - 1]![0];
+  const serverNow = now / 1000 + data.server_offset;
+  // The bar after the last stored one closes at lastEpoch + 2 × timeframe.
+  return serverNow >= lastEpoch + 2 * timeframe;
+}
+
+async function requestCandles(account: BrokerAccount) {
+  const store = getStore();
+  const bots: Bot[] = await forUser(account.user_id).bots.all({
+    eq: { broker_account_id: account.id, status: "running", source: "builtin", price_source: "broker" },
+  });
+  const wanted = new Map(bots.map((b) => [marketDataId(account.id, b.symbol, b.timeframe), b]));
+  for (const [id, bot] of wanted) {
+    const data = await store.market_data.get(id);
+    if (!candlesDue(data, bot.timeframe)) continue;
+    if (data?.requested_at && Date.now() - Date.parse(data.requested_at) < REQUEST_EVERY_MS) continue;
+    await saveMarketData(account, bot.symbol, bot.timeframe, { requested_at: nowIso() });
+    await store.commands.insert({
+      id: newId(),
+      account_id: account.id,
+      trade_id: null,
+      type: "candles",
+      payload: { symbol: bot.symbol, timeframe: bot.timeframe, count: CANDLE_COUNT },
+      status: "queued",
+      result: null,
+      created_at: nowIso(),
+      sent_at: null,
+    });
+  }
 }

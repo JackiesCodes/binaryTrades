@@ -109,6 +109,17 @@ function onBar(i) {
 }
 ```
 
+Return `{ action: "buy", stop, target }` to set the trade's own stop-loss and
+take-profit prices. Scripts also see `position` (their own side, entry and
+bars held), `account` (balance, equity, demo or real), and, live,
+`brokerPosition`. Define `onAlert(alert, i)` to handle TradingView alerts sent
+to the bot: every field of the alert JSON arrives in `alert`, and the return
+value works like `onBar`'s. A script may have `onBar`, `onAlert` or both.
+
+On MT5 accounts, bots can use **MT5 broker prices**: the bridge EA (v2) sends
+the broker's own closed candles for the bot's symbol, so signals and stops
+match the prices you trade at.
+
 Helpers: `open high low close time hl2 hlc3 bars`, `sma ema rma rsi
 highest lowest stdev change (src, n)`, `atr(n)`, `bollinger`, `macd`,
 `crossover / crossunder (a, b, i)` and `console.log`. Only read values up to

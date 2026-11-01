@@ -144,6 +144,10 @@ function ExnessConnect({ onCreated }: { onCreated: (b: { key: string; label: str
         <p className="text-xs text-muted-foreground">
           The MT5 terminal must stay running for bots to trade. A Windows VPS keeps it online 24/7.
         </p>
+        <p className="rounded-lg border border-gold/30 bg-gold/[0.06] px-3 py-2 text-xs text-gold">
+          Bridge EA v2: bots and scripts can now trade on your MT5 broker&apos;s own prices. If you installed the EA before, download it again,
+          replace the old file and recompile.
+        </p>
       </div>
     </Panel>
   );

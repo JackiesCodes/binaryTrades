@@ -13,14 +13,16 @@
 //| Every few seconds the EA sends account info, open positions and |
 //| recently closed deals, and executes the orders binaryTrades queued.   |
 //| Lot size is calculated here from the risk amount and stop loss.  |
+//| v2: also sends this broker's candles when a bot trades on MT5    |
+//|     prices (Price feed: "MT5 broker prices").                    |
 //+------------------------------------------------------------------+
 #property copyright "binaryTrades"
-#property version   "1.00"
+#property version   "2.00"
 #property strict
 
 #include <Trade/Trade.mqh>
 
-input string InpServerUrl       = "http://localhost:3000"; // binaryTrades server URL
+input string InpServerUrl       = "https://binarytrades.vercel.app"; // binaryTrades server URL
 input string InpBridgeKey       = "";                      // Bridge key (from the Brokers page)
 input int    InpPollSeconds     = 3;                       // Sync interval (seconds)
 input int    InpDefaultSlPoints = 300;                     // Stop (points) when a signal has none
@@ -29,6 +31,7 @@ input int    InpSlippagePoints  = 30;                      // Max slippage (poin
 
 CTrade   g_trade;
 string   g_results[];
+string   g_candles[];
 datetime g_lastOk = 0;
 string   g_status = "starting";
 
@@ -141,6 +144,15 @@ string BuildReport()
       if(i > 0) json += ",";
       json += g_results[i];
    }
+   json += "],";
+
+   // Candles requested by the server (for bots that trade on this broker's own prices)
+   json += "\"candles\":[";
+   for(int i = 0; i < ArraySize(g_candles); i++)
+   {
+      if(i > 0) json += ",";
+      json += g_candles[i];
+   }
    json += "]}";
    return json;
 }
@@ -198,8 +210,9 @@ void Sync()
       return;
    }
 
-   // The server has the results now.
+   // The server has the results and candles now.
    ArrayResize(g_results, 0);
+   ArrayResize(g_candles, 0);
    g_lastOk = TimeCurrent();
    g_status = "Connected";
 
@@ -238,7 +251,79 @@ void Execute(string line)
    if(type == "open") OpenOrder(id, f[2], f[3], StringToDouble(f[4]), StringToDouble(f[5]), StringToDouble(f[6]), StringToInteger(f[7]), f[9]);
    else if(type == "close") ClosePosition(id, f[8], f[9]);
    else if(type == "close_all") CloseAll(id);
+   else if(type == "candles") CollectCandles(id, f[2], (int)StringToInteger(f[3]), (int)StringToInteger(f[4]));
    else AddResult(id, false, "", 0, 0, "unknown command " + type);
+}
+
+//+------------------------------------------------------------------+
+//| Candles: closed bars of a symbol, sent with the next report       |
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES TimeframeFromSeconds(int seconds)
+{
+   switch(seconds)
+   {
+      case 60:    return PERIOD_M1;
+      case 120:   return PERIOD_M2;
+      case 180:   return PERIOD_M3;
+      case 300:   return PERIOD_M5;
+      case 600:   return PERIOD_M10;
+      case 900:   return PERIOD_M15;
+      case 1800:  return PERIOD_M30;
+      case 3600:  return PERIOD_H1;
+      case 7200:  return PERIOD_H2;
+      case 14400: return PERIOD_H4;
+      case 28800: return PERIOD_H8;
+      case 86400: return PERIOD_D1;
+   }
+   return PERIOD_CURRENT;
+}
+
+void AddCandles(string id, string symbol, int seconds, string bars, string error)
+{
+   string c = "{\"command_id\":\"" + Esc(id) + "\",\"symbol\":\"" + Esc(symbol) + "\",\"timeframe\":" + IntegerToString(seconds);
+   c += ",\"server_time\":" + IntegerToString((long)TimeCurrent());
+   c += ",\"bars\":[" + bars + "]";
+   if(error != "") c += ",\"error\":\"" + Esc(error) + "\"";
+   c += "}";
+   int n = ArraySize(g_candles);
+   ArrayResize(g_candles, n + 1);
+   g_candles[n] = c;
+}
+
+void CollectCandles(string id, string symbol, int seconds, int count)
+{
+   ENUM_TIMEFRAMES tf = TimeframeFromSeconds(seconds);
+   if(tf == PERIOD_CURRENT)
+   {
+      AddCandles(id, symbol, seconds, "", "unsupported timeframe " + IntegerToString(seconds) + "s");
+      return;
+   }
+   if(!SymbolSelect(symbol, true))
+   {
+      AddCandles(id, symbol, seconds, "", "symbol " + symbol + " not found in Market Watch");
+      return;
+   }
+   count = MathMax(10, MathMin(count, 1000));
+   MqlRates rates[];
+   ArraySetAsSeries(rates, false);
+   // Start at shift 1: only closed bars, oldest first.
+   int got = CopyRates(symbol, tf, 1, count, rates);
+   if(got <= 0)
+   {
+      // History may still be downloading; the server asks again shortly.
+      AddCandles(id, symbol, seconds, "", "history not ready yet (error " + IntegerToString(GetLastError()) + ")");
+      return;
+   }
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   string bars = "";
+   for(int i = 0; i < got; i++)
+   {
+      if(i > 0) bars += ",";
+      bars += "[" + IntegerToString((long)rates[i].time) + "," + DoubleToString(rates[i].open, digits) + "," +
+              DoubleToString(rates[i].high, digits) + "," + DoubleToString(rates[i].low, digits) + "," +
+              DoubleToString(rates[i].close, digits) + "]";
+   }
+   AddCandles(id, symbol, seconds, bars, "");
 }
 
 double LotsForRisk(string symbol, double riskMoney, double stopDistance, string &error)

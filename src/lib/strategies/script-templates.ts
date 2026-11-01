@@ -69,6 +69,48 @@ function onBar(i) {
 `,
   },
   {
+    id: "tradingview_filter",
+    name: "TradingView alert filter",
+    description: "Trades your TradingView alerts only when they agree with the trend here, with a stop below the recent swing.",
+    code: `// Runs for every TradingView alert sent to this bot (no onBar: it never trades on its own).
+// In TradingView, use the alert message shown under "TradingView setup" on the bot card.
+// Every field you add to that JSON arrives in alert, e.g. alert.action, alert.price, alert.rsi.
+const trend = ema(close, input("trend", 200));
+const swing = input("swing_bars", 10);
+
+function onAlert(alert, i) {
+  if (alert.action === "buy" && close[i] > trend[i]) {
+    return { action: "buy", stop: lowest(low, swing)[i] };
+  }
+  if (alert.action === "sell" && close[i] < trend[i]) {
+    return { action: "sell", stop: highest(high, swing)[i] };
+  }
+  if (alert.action === "close") return "close";
+  console.log("ignored", alert.action, "against the trend");
+  // returning nothing ignores the alert
+}
+`,
+  },
+  {
+    id: "managed_exit",
+    name: "Breakout with own stop & time exit",
+    description: "Sets its own stop and target on each entry, and closes a trade that hasn't worked within N bars.",
+    code: `// Shows the script's own risk control: stop & target prices, and position.barsHeld.
+const n = input("length", 20);
+const hi = highest(high, n);
+const lo = lowest(low, n);
+const a = atr(14);
+const maxBars = input("max_bars", 24);
+
+function onBar(i) {
+  if (i < n + 1) return;
+  if (position.side && position.barsHeld >= maxBars) return "close";
+  if (close[i] > hi[i - 1]) return { action: "buy", stop: close[i] - 1.5 * a[i], target: close[i] + 3 * a[i] };
+  if (close[i] < lo[i - 1]) return { action: "sell", stop: close[i] + 1.5 * a[i], target: close[i] - 3 * a[i] };
+}
+`,
+  },
+  {
     id: "blank",
     name: "Blank script",
     description: "Start from scratch.",
@@ -92,6 +134,11 @@ export const SCRIPT_REFERENCE: Array<{ name: string; detail: string }> = [
   { name: "bollinger(src, n, mult)", detail: "{ upper, middle, lower }" },
   { name: "macd(src, 12, 26, 9)", detail: "{ macd, signal, histogram }" },
   { name: "crossover crossunder (a, b, i)", detail: "a crossed above / below b on bar i. b can be a series or a number." },
+  { name: '{ action: "buy", stop, target }', detail: "Return this instead of \"buy\" to set your own stop-loss and take-profit prices for the trade." },
+  { name: "onAlert(alert, i)", detail: "Optional. Runs for each TradingView alert sent to the bot; alert holds every field of the alert JSON. Return like onBar." },
+  { name: "position", detail: "{ side: \"long\" | \"short\" | null, entryIndex, entryPrice, barsHeld } — the script's own position." },
+  { name: "account", detail: "{ broker, balance, equity, currency, is_demo } of the bot's account (a $10,000 demo in tests)." },
+  { name: "brokerPosition, live", detail: "Live only: this bot's open trade at the broker ({ side, entry, size, pnl }) or null; live is false in tests." },
   { name: "console.log(...)", detail: "Shows up under Output when you test the script." },
 ];
 

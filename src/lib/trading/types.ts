@@ -53,6 +53,8 @@ export interface Bot {
   symbol: string;
   /** Deriv symbol the strategy reads candles from, e.g. "frxEURUSD". */
   data_symbol: string;
+  /** Where the strategy reads candles: Deriv market data (data_symbol), or the bot's own MT5 broker (symbol). */
+  price_source: "deriv" | "broker";
   timeframe: number; // seconds per candle
   strategy: StrategyConfig | null;
   status: BotStatus;
@@ -115,12 +117,13 @@ export interface Signal {
   sl: number | null;
   tp: number | null;
   external_id: string | null;
-  status: "accepted" | "rejected" | "duplicate";
+  /** "ignored": a script's onAlert chose not to trade. */
+  status: "accepted" | "rejected" | "duplicate" | "ignored";
   reason: string | null;
   received_at: string;
 }
 
-export type Mt5CommandType = "open" | "close" | "close_all";
+export type Mt5CommandType = "open" | "close" | "close_all" | "candles";
 
 export interface Mt5Command {
   id: string;
@@ -204,4 +207,21 @@ export interface AuthToken {
   expires_at: string;
   used_at: string | null;
   created_at: string;
+}
+
+/** Closed candles from an MT5 account, sent by the bridge EA. */
+export interface MarketData {
+  /** `${account_id}:${symbol}:${timeframe}` */
+  id: string;
+  user_id: string;
+  account_id: string;
+  symbol: string;
+  timeframe: number;
+  /** [epoch, open, high, low, close], oldest first, epochs in broker server time. */
+  bars: Array<[number, number, number, number, number]>;
+  /** Broker server time minus UTC, in seconds. */
+  server_offset: number;
+  error: string | null;
+  requested_at: string | null;
+  updated_at: string;
 }

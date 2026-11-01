@@ -52,6 +52,15 @@ const PRELUDE = String.raw`
 "use strict";
 const __bars = JSON.parse(globalThis.__BARS_JSON);
 const __params = JSON.parse(globalThis.__PARAMS_JSON);
+const __context = JSON.parse(globalThis.__CONTEXT_JSON);
+/** True when running for a live bot, false in tests and backtests. */
+const live = Boolean(__context.live);
+/** The trading account: { broker, balance, equity, currency, is_demo }. */
+const account = Object.freeze(__context.account || null);
+/** Live only: this bot's open position at the broker, { side, entry, size, pnl } — or null. */
+const brokerPosition = __context.broker_position ? Object.freeze(__context.broker_position) : null;
+/** The script's own position while onBar runs: { side: "long" | "short" | null, entryIndex, entryPrice, barsHeld }. */
+let position = { side: null, entryIndex: null, entryPrice: null, barsHeld: 0 };
 const __inputs = {};
 const __logs = [];
 const bars = __bars.map((b) => ({ time: b.epoch, open: b.open, high: b.high, low: b.low, close: b.close }));
@@ -200,29 +209,102 @@ function change(src, n) { const k = n || 1; return __memo("change", src, [k], ()
 `;
 
 // Turns every onBar() result into a position string: "1" long, "2" short, "0" flat.
+// Turns every onBar() result into a position ("1" long, "2" short, "0" flat) plus, for
+// bars that open a trade, the stop / target prices the script asked for.
 const RUNNER = String.raw`
 (() => {
-  const onBar = globalThis.__onBar;
-  if (typeof onBar !== "function") throw new Error("Your script must define a function called onBar(i) — see the examples.");
+  const hasAlert = typeof globalThis.__onAlert === "function";
+  if (typeof globalThis.__onBar !== "function" && !hasAlert) {
+    throw new Error("Your script must define onBar(i), onAlert(alert, i), or both — see the examples.");
+  }
+  // Alert-only scripts never trade on bars.
+  const onBar = typeof globalThis.__onBar === "function" ? globalThis.__onBar : () => undefined;
   let pos = 0;
   let out = "";
+  const levels = {};
   for (let i = 0; i < bars.length; i++) {
-    const r = onBar(i);
-    if (r === undefined || r === null || r === "hold") {}
-    else if (r === 1 || r === "buy" || r === "long") pos = 1;
-    else if (r === -1 || r === "sell" || r === "short") pos = -1;
-    else if (r === 0 || r === "close" || r === "flat" || r === "exit") pos = 0;
-    else throw new Error("onBar(" + i + ") returned " + JSON.stringify(r) + ' — return "buy", "sell", "close" or nothing to hold');
+    position = Object.freeze({
+      side: pos === 1 ? "long" : pos === -1 ? "short" : null,
+      entryIndex: position.entryIndex,
+      entryPrice: position.entryPrice,
+      barsHeld: pos ? i - position.entryIndex : 0,
+    });
+    const d = __decide(onBar(i), "onBar(" + i + ")");
+    const next = d.action === undefined ? pos : d.action;
+    if (next !== 0 && next !== pos) {
+      position = { side: null, entryIndex: i, entryPrice: close[i], barsHeld: 0 };
+      if (d.stop !== undefined || d.target !== undefined) levels[i] = [d.stop ?? null, d.target ?? null];
+    }
+    pos = next;
     out += pos === -1 ? "2" : String(pos);
   }
-  return JSON.stringify({ p: out, inputs: __inputs, logs: __logs });
+  return JSON.stringify({ p: out, levels, inputs: __inputs, logs: __logs, alert: hasAlert, bar: typeof globalThis.__onBar === "function" });
 })()
 `;
 
+// Shared by onBar and onAlert: "buy" / "sell" / "close" / nothing, or { action, stop, target }.
+const DECIDE = String.raw`
+function __decide(r, where) {
+  if (r === undefined || r === null || r === "hold") return {};
+  let action = r, stop, target;
+  if (typeof r === "object") {
+    action = r.action;
+    stop = r.stop;
+    target = r.target;
+    for (const [k, v] of [["stop", stop], ["target", target]]) {
+      if (v !== undefined && v !== null && !(typeof v === "number" && isFinite(v) && v > 0)) throw new Error(where + ": " + k + " must be a price above 0");
+    }
+  }
+  const map = { buy: 1, long: 1, sell: -1, short: -1, close: 0, flat: 0, exit: 0 };
+  const a = typeof action === "number" ? action : map[action];
+  if (a !== 1 && a !== -1 && a !== 0) {
+    throw new Error(where + " returned " + JSON.stringify(r) + ' — return "buy", "sell", "close", nothing to hold, or { action, stop, target }');
+  }
+  return { action: a, stop: stop ?? undefined, target: target ?? undefined };
+}
+`;
+
+// Runs onAlert(alert) once, on the latest bar, for a TradingView alert.
+const ALERT_RUNNER = String.raw`
+(() => {
+  const onAlert = globalThis.__onAlert;
+  if (typeof onAlert !== "function") throw new Error("This script has no onAlert(alert) function.");
+  const brokerSide = brokerPosition ? (brokerPosition.side === "buy" ? "long" : "short") : null;
+  position = Object.freeze({ side: brokerSide, entryIndex: null, entryPrice: brokerPosition ? brokerPosition.entry : null, barsHeld: 0 });
+  const d = __decide(onAlert(JSON.parse(globalThis.__ALERT_JSON), bars.length - 1), "onAlert");
+  return JSON.stringify({ d, logs: __logs });
+})()
+`;
+
+export interface ScriptContext {
+  live: boolean;
+  account: { broker: string; balance: number; equity: number; currency: string; is_demo: boolean } | null;
+  broker_position: { side: "buy" | "sell"; entry: number | null; size: number; pnl: number } | null;
+}
+
+const BACKTEST_CONTEXT: ScriptContext = {
+  live: false,
+  account: { broker: "backtest", balance: 10000, equity: 10000, currency: "USD", is_demo: true },
+  broker_position: null,
+};
+
 export interface ScriptRun {
   positions: Int8Array;
+  /** Stop / target prices the script set for trades opened on a given bar index. */
+  levels: Map<number, { stop: number | null; target: number | null }>;
   /** Inputs the script declared with input(name, default), with their defaults. */
   inputs: Record<string, number>;
+  logs: string[];
+  /** The script defines onAlert(alert, i) for TradingView alerts. */
+  hasOnAlert: boolean;
+  /** The script defines onBar(i). */
+  hasOnBar: boolean;
+}
+
+export interface AlertDecision {
+  action: 1 | -1 | 0 | null;
+  stop: number | null;
+  target: number | null;
   logs: string[];
 }
 
@@ -242,8 +324,16 @@ function evalOrThrow(ctx: QuickJSContext, code: string, filename: string): unkno
   return value;
 }
 
-/** Runs a script over the candles inside a fresh sandbox. Synchronous once the engine is loaded. */
-export function runScript(qjs: QuickJSWASMModule, code: string, candles: Candle[], params: Record<string, number>): ScriptRun {
+/** Loads the script into a fresh sandbox, then runs `runner` in it. Synchronous once the engine is loaded. */
+function inSandbox(
+  qjs: QuickJSWASMModule,
+  code: string,
+  candles: Candle[],
+  params: Record<string, number>,
+  context: ScriptContext,
+  runner: string,
+  extra: Record<string, string> = {},
+): string {
   if (code.length > MAX_SCRIPT_LENGTH) throw new ScriptError(`Script is too long (max ${MAX_SCRIPT_LENGTH} characters).`);
   const runtime = qjs.newRuntime();
   runtime.setMemoryLimit(MEMORY_LIMIT);
@@ -258,23 +348,60 @@ export function runScript(qjs: QuickJSWASMModule, code: string, candles: Candle[
     };
     setString("__BARS_JSON", JSON.stringify(candles));
     setString("__PARAMS_JSON", JSON.stringify(params ?? {}));
-    evalOrThrow(ctx, PRELUDE, "prelude.js");
+    setString("__CONTEXT_JSON", JSON.stringify(context));
+    for (const [k, v] of Object.entries(extra)) setString(k, v);
+    evalOrThrow(ctx, PRELUDE + DECIDE, "prelude.js");
     // The script runs inside its own function so it may reuse any name (even "close"),
     // and on the same first line so error line numbers match the editor.
     evalOrThrow(
       ctx,
-      `globalThis.__onBar = (function () {${code}\n;return typeof onBar === "function" ? onBar : undefined;\n})();`,
+      `(function () {${code}\n;globalThis.__onBar = typeof onBar === "function" ? onBar : undefined;` +
+        `globalThis.__onAlert = typeof onAlert === "function" ? onAlert : undefined;\n})();`,
       "script.js",
     );
-    const raw = evalOrThrow(ctx, RUNNER, "runner.js");
-    const out = JSON.parse(String(raw)) as { p: string; inputs: Record<string, number>; logs: string[] };
-    const positions = new Int8Array(out.p.length);
-    for (let i = 0; i < out.p.length; i++) positions[i] = out.p[i] === "1" ? 1 : out.p[i] === "2" ? -1 : 0;
-    return { positions, inputs: out.inputs, logs: out.logs };
+    return String(evalOrThrow(ctx, runner, "runner.js"));
   } finally {
     ctx.dispose();
     runtime.dispose();
   }
+}
+
+/** Runs onBar over every candle. */
+export function runScript(
+  qjs: QuickJSWASMModule,
+  code: string,
+  candles: Candle[],
+  params: Record<string, number>,
+  context: ScriptContext = BACKTEST_CONTEXT,
+): ScriptRun {
+  const out = JSON.parse(inSandbox(qjs, code, candles, params, context, RUNNER)) as {
+    p: string;
+    levels: Record<string, [number | null, number | null]>;
+    inputs: Record<string, number>;
+    logs: string[];
+    alert: boolean;
+    bar: boolean;
+  };
+  const positions = new Int8Array(out.p.length);
+  for (let i = 0; i < out.p.length; i++) positions[i] = out.p[i] === "1" ? 1 : out.p[i] === "2" ? -1 : 0;
+  const levels = new Map(Object.entries(out.levels).map(([i, [stop, target]]) => [Number(i), { stop, target }]));
+  return { positions, levels, inputs: out.inputs, logs: out.logs, hasOnAlert: out.alert, hasOnBar: out.bar };
+}
+
+/** Runs onAlert(alert) for a TradingView alert, with the latest candles for context. */
+export async function runScriptAlert(
+  code: string,
+  candles: Candle[],
+  params: Record<string, number>,
+  context: ScriptContext,
+  alert: Record<string, unknown>,
+): Promise<AlertDecision> {
+  const qjs = await loadScriptEngine();
+  const out = JSON.parse(inSandbox(qjs, code, candles, params, context, ALERT_RUNNER, { __ALERT_JSON: JSON.stringify(alert) })) as {
+    d: { action?: 1 | -1 | 0; stop?: number; target?: number };
+    logs: string[];
+  };
+  return { action: out.d.action ?? null, stop: out.d.stop ?? null, target: out.d.target ?? null, logs: out.logs };
 }
 
 /** A deterministic random-walk series used to check a script before any market data is fetched. */
@@ -312,15 +439,33 @@ export const SCRIPT_RISK_PARAMS = [
   { key: "rr", label: "Reward : risk (0 = exit on signal)", default: 2, grid: [2] },
 ];
 
-/** Wraps a script as a StrategyDefinition so the backtester and the engine treat it like any built-in strategy. */
-export async function scriptStrategy(code: string, name = "Script"): Promise<StrategyDefinition> {
+/**
+ * Wraps a script as a StrategyDefinition so the backtester and the engine treat it like any
+ * built-in strategy. positions() and levels() share one sandbox run per candle array.
+ */
+export async function scriptStrategy(
+  code: string,
+  name = "Script",
+  context?: ScriptContext,
+): Promise<StrategyDefinition & { run: (candles: Candle[], params: Record<string, number>) => ScriptRun }> {
   const qjs = await loadScriptEngine();
+  const runs = new WeakMap<Candle[], ScriptRun>();
+  const run = (candles: Candle[], params: Record<string, number>) => {
+    let r = runs.get(candles);
+    if (!r) {
+      r = runScript(qjs, code, candles, params, context);
+      runs.set(candles, r);
+    }
+    return r;
+  };
   return {
     id: SCRIPT_STRATEGY_ID,
     name,
     style: "Custom script",
     description: "Your own JavaScript strategy.",
     params: SCRIPT_RISK_PARAMS,
-    positions: (candles, params) => runScript(qjs, code, candles, params).positions,
+    positions: (candles, params) => run(candles, params).positions,
+    levels: (candles, params) => run(candles, params).levels,
+    run,
   };
 }

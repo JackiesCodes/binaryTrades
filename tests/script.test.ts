@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runBacktest } from "@/lib/strategies/backtest";
-import { ScriptError, checkScript, loadScriptEngine, looksLikePine, runScript, sampleCandles, scriptStrategy } from "@/lib/strategies/script";
+import { ScriptError, checkScript, loadScriptEngine, looksLikePine, runScript, runScriptAlert, sampleCandles, scriptStrategy } from "@/lib/strategies/script";
 import { SCRIPT_TEMPLATES } from "@/lib/strategies/script-templates";
 
 const candles = sampleCandles(400);
@@ -35,7 +35,7 @@ describe("script bots", () => {
   it("reports errors with the editor line number", async () => {
     await expect(checkScript(`// first\nfunction onBar(i) {\n  return nope + 1;\n}`)).rejects.toThrow(/^Line 3: ReferenceError/);
     await expect(checkScript(`function onBar(i) { return "moon"; }`)).rejects.toThrow(/returned "moon"/);
-    await expect(checkScript(`const x = 1;`)).rejects.toThrow(/must define a function called onBar/);
+    await expect(checkScript(`const x = 1;`)).rejects.toThrow(/must define onBar\(i\), onAlert/);
   });
 
   it("stops endless loops", async () => {
@@ -52,5 +52,35 @@ describe("script bots", () => {
     expect(looksLikePine(pine)).toBe(true);
     expect(looksLikePine(SCRIPT_TEMPLATES[0]!.code)).toBe(false);
     await expect(checkScript(pine)).rejects.toBeInstanceOf(ScriptError);
+  });
+
+  it("records the stop and target a script sets, and tracks its position", async () => {
+    const qjs = await loadScriptEngine();
+    const code = `function onBar(i) {
+      if (i === 3) return { action: "buy", stop: 900, target: 1200 };
+      if (position.side === "long" && position.barsHeld >= 2) return "close";
+    }`;
+    const run = runScript(qjs, code, candles.slice(0, 10), {});
+    expect(Array.from(run.positions)).toEqual([0, 0, 0, 1, 1, 0, 0, 0, 0, 0]);
+    expect(run.levels.get(3)).toEqual({ stop: 900, target: 1200 });
+    await expect(checkScript(`function onBar(i) { return { action: "buy", stop: -1 }; }`)).rejects.toThrow(/stop must be a price/);
+  });
+
+  it("lets onAlert decide on TradingView alerts, with alert-only scripts allowed", async () => {
+    const code = `const t = ema(close, 5);
+      function onAlert(alert, i) {
+        console.log("got", alert.action, alert.rsi);
+        if (alert.action === "buy" && alert.rsi < 30) return { action: "buy", stop: low[i] - 1 };
+      }`;
+    const run = await checkScript(code);
+    expect(run).toMatchObject({ hasOnAlert: true, hasOnBar: false });
+    const ctx = { live: true, account: null, broker_position: null };
+    const yes = await runScriptAlert(code, candles, {}, ctx, { action: "buy", rsi: 25 });
+    expect(yes.action).toBe(1);
+    expect(yes.stop).toBeCloseTo(candles.at(-1)!.low - 1);
+    expect(yes.logs).toEqual(["got buy 25"]);
+    const no = await runScriptAlert(code, candles, {}, ctx, { action: "buy", rsi: 70 });
+    expect(no.action).toBeNull();
+    await expect(runScriptAlert(`function onBar(i) {}`, candles, {}, ctx, {})).rejects.toThrow(/no onAlert/);
   });
 });
