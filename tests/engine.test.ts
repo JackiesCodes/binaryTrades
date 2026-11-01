@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ingestMt5Report, type Mt5Report } from "@/lib/brokers/mt5";
 import { encryptSecret } from "@/lib/secrets";
-import { activeTrades, bookEquity, deps, processSignal, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
+import { activeTrades, bookEquity, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
 import { getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
 import type { Bot, BrokerAccount } from "@/lib/trading/types";
 
@@ -251,5 +251,27 @@ describe("Deriv credentials", () => {
     } finally {
       deps.derivOpen = original;
     }
+  });
+
+  it("runs script bots, and pauses one whose script breaks", async () => {
+    const demo = await derivAccount("demo-token", true, 1000);
+    const bot = makeBot({
+      broker_account_id: demo.id,
+      symbol: "R_75",
+      data_symbol: "R_75",
+      strategy: { id: "script", params: { atr_mult: 2, rr: 0 }, code: `function onBar(i) { if (i === bars.length - 1) return "buy"; }` },
+    });
+    await getStore().bots.insert(bot);
+    expect(await runBuiltinBot(bot)).toBe("buy");
+    expect(await activeTrades({ bot_id: bot.id })).toHaveLength(1);
+
+    const broken = makeBot({
+      id: newId(),
+      broker_account_id: demo.id,
+      strategy: { id: "script", params: {}, code: `function onBar(i) { return oops; }` },
+    });
+    await getStore().bots.insert(broken);
+    expect(await runBuiltinBot(broken)).toBe("paused: script error");
+    expect(await getStore().bots.get(broken.id)).toMatchObject({ status: "paused", paused_reason: expect.stringContaining("oops") });
   });
 });

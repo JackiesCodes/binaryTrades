@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { SESSION_COOKIE, isAuthConfigured, verifySessionToken } from "@/lib/auth/session";
+import { SESSION_COOKIE, isAuthConfigured, readSessionToken } from "@/lib/auth/session";
+import { currentSessionVersion } from "@/lib/auth/session-version";
 
 // Machine-to-machine endpoints authenticate themselves (webhook passphrase,
 // MT5 bridge key, cron secret) and must stay reachable without a browser session.
@@ -15,7 +16,12 @@ export async function middleware(request: NextRequest) {
     return new NextResponse("Set APP_PASSWORD to protect your trading dashboard before deploying.", { status: 503 });
   }
 
-  if (await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
+  const session = await readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  if (session) {
+    // Versions only go up, so a cookie newer than a cached value is still valid.
+    const current = await currentSessionVersion(request.nextUrl.origin);
+    if (current === null || session.version >= current) return NextResponse.next();
+  }
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });

@@ -7,6 +7,7 @@ import {
   Activity,
   Bot,
   CandlestickChart,
+  Code2,
   FlaskConical,
   LayoutDashboard,
   LogOut,
@@ -16,6 +17,7 @@ import {
   Plus,
   ScrollText,
   ShieldCheck,
+  UserRound,
 } from "lucide-react";
 
 import { BrandMark, Wordmark } from "@/components/app/brand";
@@ -31,9 +33,11 @@ const NAV = [
   { href: "/dashboard/bots", label: "Bots", short: "Bots", icon: Bot },
   { href: "/dashboard/trades", label: "Trades", short: "Trades", icon: CandlestickChart },
   { href: "/dashboard/strategy-lab", label: "Strategy Lab", short: "Lab", icon: FlaskConical },
+  { href: "/dashboard/scripts", label: "Scripts", short: "Scripts", icon: Code2 },
   { href: "/dashboard/brokers", label: "Brokers", short: "Brokers", icon: PlugZap },
   { href: "/dashboard/risk", label: "Risk Guard", short: "Risk", icon: ShieldCheck },
   { href: "/dashboard/logs", label: "Alerts & Logs", short: "Logs", icon: ScrollText },
+  { href: "/dashboard/profile", label: "Profile", short: "Profile", icon: UserRound },
 ];
 
 // Phones show the first four in the tab bar; the rest live under "More".
@@ -121,10 +125,30 @@ function Sidebar() {
           </Link>
         ))}
       </nav>
-      <div className="mt-auto p-3">
+      <div className="mt-auto space-y-2 p-3">
         <EngineStatus />
+        <ProfileChip />
       </div>
     </aside>
+  );
+}
+
+function ProfileChip() {
+  const { state } = useDashboard();
+  const name = state?.meta.display_name?.trim() || "Owner";
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join("");
+  return (
+    <Link href="/dashboard/profile" className="flex items-center gap-2.5 rounded-xl px-2 py-2 text-sm hover:bg-white/[0.04]">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-profit/15 text-xs font-semibold text-profit">{initials}</span>
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{name}</span>
+        <span className="block text-xs text-muted-foreground">Profile &amp; password</span>
+      </span>
+    </Link>
   );
 }
 

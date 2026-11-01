@@ -32,8 +32,11 @@ export type BotSource = "builtin" | "tradingview";
 export type BotStatus = "running" | "paused";
 
 export interface StrategyConfig {
+  /** A built-in strategy id, or "script" for a script bot. */
   id: string;
   params: Record<string, number>;
+  /** JavaScript source of a script bot (id "script"). */
+  code?: string;
 }
 
 export interface Bot {
@@ -156,5 +159,18 @@ export interface Settings {
   max_trades_per_bot: number;
   default_risk_percent: number;
   books: Record<Book, BookState>;
+  updated_at: string;
+}
+
+/** The owner's profile. Server-only: password_hash never leaves the server. */
+export interface Profile {
+  id: "owner";
+  display_name: string | null;
+  email: string | null;
+  /** scrypt hash; null means APP_PASSWORD is still the sign-in password. */
+  password_hash: string | null;
+  password_changed_at: string | null;
+  /** Bumped to sign out every existing session. */
+  session_version: number;
   updated_at: string;
 }

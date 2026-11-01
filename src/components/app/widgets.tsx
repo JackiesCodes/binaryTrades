@@ -7,7 +7,8 @@ import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { api, money, pnlClass, price, timeAgo } from "@/lib/client";
+import { api, money, pct, pnlClass, price, timeAgo } from "@/lib/client";
+import type { BacktestMetrics } from "@/lib/strategies/backtest";
 import type { PublicBroker } from "@/lib/trading/state";
 import type { Bot, Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
@@ -425,6 +426,26 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
           <Copy /> {copied ? "Copied" : "Copy"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+export function MetricsGrid({ m }: { m: BacktestMetrics }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Kpi
+        label="Return"
+        value={pct(m.return_percent, 1, true)}
+        tone={pnlClass(m.return_percent)}
+        sub={`Buy & hold ${pct(m.buy_hold_percent, 1, true)}`}
+      />
+      <Kpi label="Max drawdown" value={pct(-m.max_drawdown_percent)} />
+      <Kpi label="Win rate" value={pct(m.win_rate, 0)} sub={`${m.trades} trades · avg ${m.avg_r.toFixed(2)}R`} />
+      <Kpi
+        label="Profit factor"
+        value={m.profit_factor === null ? "∞" : m.profit_factor.toFixed(2)}
+        sub={`Sharpe ${m.sharpe.toFixed(2)}`}
+      />
     </div>
   );
 }

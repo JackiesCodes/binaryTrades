@@ -46,7 +46,7 @@ function BotsPageInner() {
     <div className="space-y-5">
       <PageHeader
         title="Bots"
-        description="Built-in bots trade a Strategy Lab strategy on their own. TradingView bots execute your Pine Script alerts."
+        description="Built-in bots trade a Strategy Lab strategy or your own script on their own. TradingView bots execute your Pine Script alerts."
         action={
           <Button onClick={() => setCreating(true)} className="w-full sm:w-auto">
             <Plus /> New bot
@@ -79,7 +79,19 @@ function BotsPageInner() {
           </DialogHeader>
           {state &&
             (state.brokers.length ? (
-              <BotForm brokers={state.brokers} onDone={() => closeDialog(false)} />
+              <>
+                <Link
+                  href="/dashboard/scripts"
+                  className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2.5 text-sm hover:border-profit/40"
+                >
+                  <span>
+                    <span className="font-medium">Have your own strategy?</span>{" "}
+                    <span className="text-muted-foreground">Write or paste a script</span>
+                  </span>
+                  <span className="text-profit">→</span>
+                </Link>
+                <BotForm brokers={state.brokers} onDone={() => closeDialog(false)} />
+              </>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">Connect an Exness or Deriv account first — every bot trades on one of your accounts.</p>
@@ -377,7 +389,7 @@ function BotCard({ bot, brokers }: { bot: Bot; brokers: PublicBroker[] }) {
             <AccountKindBadge broker={broker} />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {bot.source === "tradingview" ? "TradingView alerts" : strategy?.name ?? "Built-in"} · {bot.symbol} · {timeframeLabel(bot.timeframe)} ·{" "}
+            {bot.source === "tradingview" ? "TradingView alerts" : bot.strategy?.id === "script" ? "Script" : strategy?.name ?? "Built-in"} · {bot.symbol} · {timeframeLabel(bot.timeframe)} ·{" "}
             {broker ? broker.label : "no broker"} · risk {bot.risk_percent}%
             {broker?.kind === "mt5" && ` · magic ${bot.magic}`}
           </p>
@@ -415,6 +427,11 @@ function BotCard({ bot, brokers }: { bot: Bot; brokers: PublicBroker[] }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1">
+        {bot.strategy?.id === "script" && (
+          <Button size="sm" variant="ghost" asChild>
+            <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit script</Link>
+          </Button>
+        )}
         {bot.source === "tradingview" && (
           <Button size="sm" variant="ghost" onClick={() => setShowWebhook((v) => !v)}>
             {showWebhook ? "Hide setup" : "TradingView setup"}

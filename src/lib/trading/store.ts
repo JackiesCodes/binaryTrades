@@ -13,6 +13,7 @@ import type {
   EquityPoint,
   EventLog,
   Mt5Command,
+  Profile,
   Settings,
   Signal,
   Trade,
@@ -55,9 +56,10 @@ export interface Store {
   commands: Collection<Mt5Command>;
   logs: Collection<EventLog>;
   equity: Collection<EquityPoint>;
+  profile: Collection<Profile>;
 }
 
-const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity"] as const;
+const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "profile"] as const;
 type TableName = (typeof TABLES)[number];
 
 // Logs, signals and equity points grow forever; the file backend keeps the newest N.
@@ -264,6 +266,7 @@ function buildStore(): Store {
       commands: c("commands"),
       logs: c("logs"),
       equity: c("equity"),
+      profile: c("profile"),
     };
   }
 
@@ -278,6 +281,7 @@ function buildStore(): Store {
     commands: file.collection("commands"),
     logs: file.collection("logs"),
     equity: file.collection("equity"),
+    profile: file.collection("profile"),
   };
 }
 

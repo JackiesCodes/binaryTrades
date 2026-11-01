@@ -188,6 +188,26 @@ update settings
 alter table brokers add column if not exists app_id text;
 `,
   },
+  {
+    file: "0004_owner_profile.sql",
+    sql: `-- 0004: the owner's profile and sign-in password. Until a password is set here,
+-- APP_PASSWORD signs in. session_version goes up on every password change or
+-- "sign out other devices", which invalidates every older session cookie.
+-- Idempotent: safe to run more than once.
+
+create table if not exists profile (
+  id text primary key default 'owner',
+  display_name text,
+  email text,
+  password_hash text,
+  password_changed_at timestamptz,
+  session_version integer not null default 1,
+  updated_at timestamptz not null default now()
+);
+
+alter table profile enable row level security;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -197,4 +217,5 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
     "select not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'book') as done",
   "0003_deriv_app_id.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'brokers' and column_name = 'app_id') as done",
+  "0004_owner_profile.sql": "select to_regclass('public.profile') is not null as done",
 };

@@ -13,7 +13,7 @@ describe("database schema", () => {
     const db = new PGlite();
     for (let run = 0; run < 2; run++) for (const m of MIGRATIONS) await db.exec(m.sql);
     const tables = await db.query<{ n: number }>("select count(*)::int as n from information_schema.tables where table_schema = 'public'");
-    expect(tables.rows[0]!.n).toBe(8);
+    expect(tables.rows[0]!.n).toBe(9);
     const book = await db.query("select 1 from information_schema.columns where table_name = 'bots' and column_name = 'book'");
     expect(book.rows).toHaveLength(0);
     await expect(db.exec("insert into equity (id, book, equity) values ('x', 'paper', 1)")).rejects.toThrow();

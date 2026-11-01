@@ -4,8 +4,9 @@ import { z } from "zod";
 import { jsonError, zodError } from "@/lib/http";
 import { randomToken } from "@/lib/secrets";
 import { defaultParams, getStrategy } from "@/lib/strategies";
+import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
 import { guessDataSymbol } from "@/lib/trading/symbols";
-import { getStore, log, newId, nowIso } from "@/lib/trading/store";
+import { getSettings, getStore, log, newId, nowIso } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,10 @@ const botInputSchema = z.object({
   strategy_params: z.record(z.coerce.number()).optional(),
   risk_percent: z.coerce.number().min(0.1).max(5).default(1),
   deriv_multiplier: z.coerce.number().int().min(1).max(5000).default(100),
+  /** JavaScript source, for strategy_id "script". */
+  script: z.string().max(MAX_SCRIPT_LENGTH).optional(),
+  /** Start trading straight away instead of creating the bot paused. */
+  start: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -37,12 +42,23 @@ export async function POST(request: Request) {
   if (!broker) return jsonError(400, "UNKNOWN_BROKER");
 
   let strategy: Bot["strategy"] = null;
-  if (input.source === "builtin") {
+  if (input.source === "builtin" && input.strategy_id === SCRIPT_STRATEGY_ID) {
+    if (!input.script?.trim()) return jsonError(400, "SCRIPT_REQUIRED");
+    const params = { atr_mult: 2, rr: 2, ...input.strategy_params };
+    try {
+      const check = await checkScript(input.script, params);
+      strategy = { id: SCRIPT_STRATEGY_ID, params: { ...check.inputs, ...params }, code: input.script };
+    } catch (error) {
+      if (error instanceof ScriptError) return jsonError(400, "SCRIPT_ERROR", error.message);
+      throw error;
+    }
+  } else if (input.source === "builtin") {
     const def = getStrategy(input.strategy_id ?? "");
     if (!def) return jsonError(400, "UNKNOWN_STRATEGY");
     strategy = { id: def.id, params: { ...defaultParams(def), ...input.strategy_params } };
   }
 
+  const startNow = Boolean(input.start) && !(await getSettings()).kill_switch;
   const existing = await store.bots.all();
   const bot: Bot = {
     id: newId(),
@@ -53,8 +69,8 @@ export async function POST(request: Request) {
     data_symbol: input.data_symbol || guessDataSymbol(input.symbol),
     timeframe: input.timeframe,
     strategy,
-    status: "paused",
-    paused_reason: "New bot — press Start when ready",
+    status: startNow ? "running" : "paused",
+    paused_reason: startNow ? null : input.start ? "Kill switch is on — start the bot after releasing it" : "New bot — press Start when ready",
     risk_percent: input.risk_percent,
     deriv_multiplier: input.deriv_multiplier,
     magic: nextMagic(existing),
@@ -64,7 +80,9 @@ export async function POST(request: Request) {
     created_at: nowIso(),
   };
   await store.bots.insert(bot);
-  await log("info", `Bot "${bot.name}" created on ${broker.label}${broker.is_demo ? " (demo)" : ""}`, { bot_id: bot.id });
+  await log("info", `Bot "${bot.name}" created on ${broker.label}${broker.is_demo ? " (demo)" : ""}${startNow ? " and started" : ""}`, {
+    bot_id: bot.id,
+  });
   return NextResponse.json(bot, { status: 201 });
 }
 

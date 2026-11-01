@@ -4,13 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { FlaskConical, Trophy } from "lucide-react";
 
-import { AreaChart, EmptyState, Field, Kpi, PageHeader, Panel, selectClass } from "@/components/app/widgets";
+import { AreaChart, EmptyState, Field, MetricsGrid, PageHeader, Panel, selectClass } from "@/components/app/widgets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, money, pct, pnlClass, price } from "@/lib/client";
 import { STRATEGIES, defaultParams, getStrategy } from "@/lib/strategies";
-import type { BacktestMetrics, BacktestResult, OptimiseEntry } from "@/lib/strategies/backtest";
+import type { BacktestResult, OptimiseEntry } from "@/lib/strategies/backtest";
 import { DATA_SYMBOLS, TIMEFRAMES, timeframeLabel } from "@/lib/trading/symbols";
 import { cn } from "@/lib/utils";
 
@@ -340,26 +340,6 @@ export default function StrategyLabPage() {
           </div>
         )}
       </Panel>
-    </div>
-  );
-}
-
-function MetricsGrid({ m }: { m: BacktestMetrics }) {
-  return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <Kpi
-        label="Return"
-        value={pct(m.return_percent, 1, true)}
-        tone={pnlClass(m.return_percent)}
-        sub={`Buy & hold ${pct(m.buy_hold_percent, 1, true)}`}
-      />
-      <Kpi label="Max drawdown" value={pct(-m.max_drawdown_percent)} />
-      <Kpi label="Win rate" value={pct(m.win_rate, 0)} sub={`${m.trades} trades · avg ${m.avg_r.toFixed(2)}R`} />
-      <Kpi
-        label="Profit factor"
-        value={m.profit_factor === null ? "∞" : m.profit_factor.toFixed(2)}
-        sub={`Sharpe ${m.sharpe.toFixed(2)}`}
-      />
     </div>
   );
 }

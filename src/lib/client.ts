@@ -15,6 +15,12 @@ const MESSAGES: Record<string, string> = {
   NOT_ENOUGH_HISTORY: "Not enough price history for that market/timeframe.",
   CLOSE_FAILED: "The broker refused to close the trade.",
   WRONG_PASSWORD: "Wrong password.",
+  WRONG_CURRENT_PASSWORD: "Your current password is not correct.",
+  PASSWORD_TOO_SHORT: "Use at least 10 characters for the new password.",
+  PASSWORD_UNCHANGED: "The new password must be different from the current one.",
+  SCRIPT_REQUIRED: "Write or paste a script first.",
+  NOT_A_SCRIPT_BOT: "Only script bots have a script to edit.",
+  BOT_NOT_FOUND: "That bot no longer exists.",
   APP_PASSWORD_NOT_SET: "Set APP_PASSWORD in your environment to enable login.",
 };
 
@@ -34,6 +40,7 @@ export async function api<T = unknown>(path: string, method = "GET", body?: unkn
   if (!res.ok) {
     const code = (data as { error?: string }).error ?? `HTTP_${res.status}`;
     const details = (data as { details?: unknown }).details;
+    if (code === "SCRIPT_ERROR" && typeof details === "string") throw new ApiError(details);
     const extra = typeof details === "string" ? ` (${details})` : "";
     throw new ApiError((MESSAGES[code] ?? (data as { reason?: string }).reason ?? code) + extra);
   }

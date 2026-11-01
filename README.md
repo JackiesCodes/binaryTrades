@@ -12,6 +12,12 @@ MT5 bridge Server URL, TradingView webhooks and the cron scheduler.
   manually. Each bot trades on one connected broker account.
 - **Brokers**: Exness (and any MT5 broker) through a small bridge EA you run
   in MetaTrader 5; Deriv through its official API (Multiplier contracts).
+- **Scripts**: write or paste your own strategy in JavaScript, test it on real
+  price history, and turn it into a bot (optionally started right away).
+  Scripts run in an isolated QuickJS (WebAssembly) sandbox with no network,
+  file or key access, a 3-second time limit and a 64 MB memory cap.
+- **Profile**: display name, change your sign-in password, and sign out other
+  devices.
 - **Strategy Lab**: backtests on real Deriv price history, plus an optimiser
   that tunes every strategy on 70% of the data and ranks them on the 30% it
   has never seen. Turn the winner into a bot in one click.
@@ -81,6 +87,39 @@ always on.
 2. Set `APP_PASSWORD`, `CREDENTIALS_ENCRYPTION_KEY` and `CRON_SECRET` in Vercel.
 3. Run the bots 24/7 with a free scheduler such as cron-job.org, calling
    `https://<your-app>/api/cron/tick?key=<CRON_SECRET>` every minute.
+
+## Script bots
+
+Open **Scripts**, start from an example or paste your own code, and define
+`onBar(i)`. It runs once for every closed candle and returns `"buy"`,
+`"sell"`, `"close"`, or nothing to keep the current position:
+
+```js
+const fast = ema(close, input("fast", 20)); // input() = a setting you can change per bot
+const slow = ema(close, input("slow", 50));
+
+function onBar(i) {
+  if (crossover(fast, slow, i)) return "buy";
+  if (crossunder(fast, slow, i)) return "sell";
+}
+```
+
+Helpers: `open high low close time hl2 hlc3 bars`, `sma ema rma rsi
+highest lowest stdev change (src, n)`, `atr(n)`, `bollinger`, `macd`,
+`crossover / crossunder (a, b, i)` and `console.log`. Only read values up to
+index `i`. Every trade gets a stop of ATR(14) × the bot's stop setting and is
+sized by Risk Guard. If a running script throws an error, its bot pauses and
+the error appears on the bot card. TradingView Pine Script can't run here; use
+a TradingView alerts bot for it.
+
+## Your password
+
+Until you set your own password under **Profile**, you sign in with
+`APP_PASSWORD`. Once set, only the new password works (stored as a scrypt
+hash), and changing it signs out every other device. If you forget it,
+clear it in the Supabase SQL editor with
+`update profile set password_hash = null;` and sign in with `APP_PASSWORD`
+again.
 
 ## Connecting your accounts
 
@@ -155,6 +194,9 @@ pause bots before moving money.
 - Broker tokens are encrypted with `CREDENTIALS_ENCRYPTION_KEY` and never
   leave the server. Supabase tables have RLS enabled with no policies, so
   only the server's service-role key can read them.
+- Passwords you set are stored as salted scrypt hashes. Session cookies carry
+  a version number, so a password change or "sign out other devices" ends
+  older sessions within about 10 seconds.
 - Per-trade risk is hard-capped at 5%, and MT5 orders are capped by the EA's
   `InpMaxLots` input.
 
@@ -167,12 +209,13 @@ src/
     login/
     api/
       webhooks/tradingview  mt5/sync  cron/tick  engine/tick
-      bots  brokers  trades  settings  kill-switch  strategy-lab  state  auth
+      bots  brokers  trades  settings  kill-switch  strategy-lab  scripts  profile  state  auth
   components/app/         # shell, live state provider, widgets
   lib/
     trading/              # engine, risk, store (Supabase or JSON file), types, symbols
     brokers/              # deriv.ts (WebSocket API), mt5.ts (bridge protocol)
-    strategies/           # indicators, strategies, backtester + walk-forward optimiser
+    strategies/           # indicators, strategies, script sandbox, backtester + walk-forward optimiser
+    auth/                 # session cookies, password hashing, profile
 public/downloads/BinaryTradesBridge.mq5   # MetaTrader 5 bridge EA
 supabase/migrations/      # Postgres schema
 tests/                    # vitest: strategies, risk, engine, MT5 bridge

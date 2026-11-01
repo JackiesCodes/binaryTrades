@@ -3,6 +3,7 @@ import "server-only";
 import { derivCandles, derivClose, derivOpen, derivSnapshot, type Candle, type DerivCredentials } from "@/lib/brokers/deriv";
 import { decryptSecret } from "@/lib/secrets";
 import { atrSeries, getStrategy } from "@/lib/strategies";
+import { SCRIPT_STRATEGY_ID, scriptStrategy } from "@/lib/strategies/script";
 import { advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
 import { dayKey, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
 import type { Book, Bot, BrokerAccount, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
@@ -479,7 +480,12 @@ export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
 
 export async function runBuiltinBot(bot: Bot): Promise<string> {
   const store = getStore();
-  const def = bot.strategy ? getStrategy(bot.strategy.id) : undefined;
+  const def =
+    bot.strategy?.id === SCRIPT_STRATEGY_ID && bot.strategy.code
+      ? await scriptStrategy(bot.strategy.code, bot.name)
+      : bot.strategy
+        ? getStrategy(bot.strategy.id)
+        : undefined;
   if (!def || !bot.strategy) return "no strategy";
 
   const candles = closedCandles(await deps.candles(bot.data_symbol, bot.timeframe, 400), bot.timeframe);
@@ -489,7 +495,17 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
   await store.bots.update(bot.id, { last_bar_epoch: last.epoch });
 
   const params = bot.strategy.params;
-  const positions = def.positions(candles, params);
+  let positions: Int8Array;
+  try {
+    positions = def.positions(candles, params);
+  } catch (error) {
+    if (def.id !== SCRIPT_STRATEGY_ID) throw error;
+    // A broken script must not keep failing every bar: pause the bot and say why.
+    const reason = `Script error — ${(error as Error).message}`;
+    await store.bots.update(bot.id, { status: "paused", paused_reason: reason.slice(0, 300) });
+    await log("error", `${bot.name} paused: ${reason}`, { bot_id: bot.id });
+    return "paused: script error";
+  }
   const want = positions[positions.length - 1];
   const prev = positions[positions.length - 2];
   const open = await activeTrades({ bot_id: bot.id });

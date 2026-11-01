@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getProfile } from "@/lib/auth/account";
 import { activeTrades, bookEquity } from "@/lib/trading/engine";
 import { getSettings, getStore } from "@/lib/trading/store";
 import type { Book, Bot, BrokerAccount, EquityPoint, EventLog, Settings, Signal, Trade } from "@/lib/trading/types";
@@ -26,7 +27,7 @@ export interface DashboardState {
   logs: EventLog[];
   equity: Record<Book, EquityPoint[]>;
   kpis: Record<Book, BookKpis>;
-  meta: { backend: "supabase" | "file"; auth: boolean; generated_at: string };
+  meta: { backend: "supabase" | "file"; auth: boolean; generated_at: string; display_name: string | null };
 }
 
 export function publicBroker(b: BrokerAccount): PublicBroker {
@@ -60,7 +61,7 @@ export async function getDashboardState(): Promise<DashboardState> {
   const settings = await getSettings();
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
 
-  const [brokers, bots, open, closed, signals, logs, equity] = await Promise.all([
+  const [brokers, bots, open, closed, signals, logs, equity, profile] = await Promise.all([
     store.brokers.all({ order: { field: "created_at" } }),
     store.bots.all({ order: { field: "created_at" } }),
     activeTrades(),
@@ -68,6 +69,7 @@ export async function getDashboardState(): Promise<DashboardState> {
     store.signals.all({ order: { field: "received_at", ascending: false }, limit: 50 }),
     store.logs.all({ order: { field: "created_at", ascending: false }, limit: 150 }),
     store.equity.all({ since: { field: "created_at", value: since }, order: { field: "created_at" } }),
+    getProfile(),
   ]);
 
   const closedOnly = closed.filter((t) => t.status === "closed");
@@ -89,6 +91,11 @@ export async function getDashboardState(): Promise<DashboardState> {
       demo: equity.filter((e) => e.book === "demo"),
     },
     kpis: { real, demo },
-    meta: { backend: store.backend, auth: Boolean(process.env.APP_PASSWORD), generated_at: new Date().toISOString() },
+    meta: {
+      backend: store.backend,
+      auth: Boolean(process.env.APP_PASSWORD),
+      generated_at: new Date().toISOString(),
+      display_name: profile.display_name,
+    },
   };
 }
