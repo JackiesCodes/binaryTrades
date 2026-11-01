@@ -60,9 +60,11 @@ export async function POST(request: Request) {
 
   const bot = await getStore().bots.get(input.bot_id);
   if (!bot || !safeEqual(bot.webhook_passphrase, input.passphrase)) {
-    await log("warn", "TradingView webhook with bad bot id or passphrase ignored");
+    if (bot) await log("warn", "TradingView webhook with a wrong passphrase ignored", { user_id: bot.user_id, bot_id: bot.id });
     return jsonError(401, "INVALID_BOT_OR_PASSPHRASE");
   }
+  const owner = await getStore().users.get(bot.user_id);
+  if (!owner || owner.disabled) return jsonError(403, "ACCOUNT_DISABLED");
 
   const signal = await processSignal({
     bot,

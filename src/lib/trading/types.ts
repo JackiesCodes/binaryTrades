@@ -8,6 +8,8 @@ export type BrokerKind = "deriv" | "mt5";
 
 export interface BrokerAccount {
   id: string;
+  /** Owner of this row. */
+  user_id: string;
   kind: BrokerKind;
   label: string;
   status: "connected" | "waiting" | "error";
@@ -41,6 +43,8 @@ export interface StrategyConfig {
 
 export interface Bot {
   id: string;
+  /** Owner of this row. */
+  user_id: string;
   name: string;
   source: BotSource;
   /** Required to trade; null only after its account was disconnected. */
@@ -69,6 +73,8 @@ export type TradeStatus = "pending" | "open" | "closed" | "rejected";
 
 export interface Trade {
   id: string;
+  /** Owner of this row. */
+  user_id: string;
   bot_id: string | null;
   broker_account_id: string | null;
   book: Book;
@@ -99,6 +105,8 @@ export type SignalAction = "buy" | "sell" | "close";
 
 export interface Signal {
   id: string;
+  /** Owner of this row. */
+  user_id: string;
   bot_id: string | null;
   source: BotSource | "manual";
   action: SignalAction;
@@ -128,6 +136,8 @@ export interface Mt5Command {
 
 export interface EventLog {
   id: string;
+  /** Owner of this log line; null for platform-wide messages. */
+  user_id: string | null;
   level: "info" | "warn" | "error" | "trade";
   message: string;
   bot_id: string | null;
@@ -137,6 +147,8 @@ export interface EventLog {
 
 export interface EquityPoint {
   id: string;
+  /** Owner of this row. */
+  user_id: string;
   book: Book;
   equity: number;
   created_at: string;
@@ -148,8 +160,9 @@ export interface BookState {
   day_start_equity: number;
 }
 
+/** Risk Guard settings, one row per user (id = the user's id). */
 export interface Settings {
-  id: "global";
+  id: string;
   kill_switch: boolean;
   /** Max loss per day, in account currency, before every bot in that book pauses. */
   daily_loss_limit: number;
@@ -162,15 +175,33 @@ export interface Settings {
   updated_at: string;
 }
 
-/** The owner's profile. Server-only: password_hash never leaves the server. */
-export interface Profile {
-  id: "owner";
-  display_name: string | null;
+export type UserRole = "user" | "admin";
+
+/** A person with a binaryTrades account. Server-only: never send password_hash to a browser. */
+export interface User {
+  id: string;
+  /** Lower-case. Null only for the original owner until they add one. */
   email: string | null;
-  /** scrypt hash; null means APP_PASSWORD is still the sign-in password. */
+  display_name: string | null;
   password_hash: string | null;
-  password_changed_at: string | null;
-  /** Bumped to sign out every existing session. */
+  role: UserRole;
+  email_verified_at: string | null;
+  /** Bumped to end every existing session (password change, sign out everywhere, disabled). */
   session_version: number;
+  disabled: boolean;
+  accepted_terms_at: string | null;
+  password_changed_at: string | null;
+  last_login_at: string | null;
+  created_at: string;
   updated_at: string;
+}
+
+export interface AuthToken {
+  /** SHA-256 of the token sent by email. */
+  id: string;
+  user_id: string;
+  kind: "verify_email" | "reset_password";
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
 }

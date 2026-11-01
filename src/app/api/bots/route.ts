@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { needsVerifiedEmail, withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { randomToken } from "@/lib/secrets";
 import { defaultParams, getStrategy } from "@/lib/strategies";
 import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
 import { guessDataSymbol } from "@/lib/trading/symbols";
-import { getSettings, getStore, log, newId, nowIso } from "@/lib/trading/store";
+import { forUser, getSettings, log, newId, nowIso } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 
 export const dynamic = "force-dynamic";
@@ -28,15 +29,15 @@ const botInputSchema = z.object({
   start: z.boolean().optional(),
 });
 
-export async function GET() {
-  return NextResponse.json(await getStore().bots.all({ order: { field: "created_at" } }));
-}
+export const GET = withUser(async (user) => NextResponse.json(await forUser(user.id).bots.all({ order: { field: "created_at" } })));
 
-export async function POST(request: Request) {
+export const POST = withUser(async (user, request) => {
+  const blocked = needsVerifiedEmail(user);
+  if (blocked) return blocked;
   const parsed = botInputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
   const input = parsed.data;
-  const store = getStore();
+  const store = forUser(user.id);
 
   const broker = await store.brokers.get(input.broker_account_id);
   if (!broker) return jsonError(400, "UNKNOWN_BROKER");
@@ -58,10 +59,11 @@ export async function POST(request: Request) {
     strategy = { id: def.id, params: { ...defaultParams(def), ...input.strategy_params } };
   }
 
-  const startNow = Boolean(input.start) && !(await getSettings()).kill_switch;
+  const startNow = Boolean(input.start) && !(await getSettings(user.id)).kill_switch;
   const existing = await store.bots.all();
   const bot: Bot = {
     id: newId(),
+    user_id: user.id,
     name: input.name,
     source: input.source,
     broker_account_id: broker.id,
@@ -81,10 +83,11 @@ export async function POST(request: Request) {
   };
   await store.bots.insert(bot);
   await log("info", `Bot "${bot.name}" created on ${broker.label}${broker.is_demo ? " (demo)" : ""}${startNow ? " and started" : ""}`, {
+    user_id: user.id,
     bot_id: bot.id,
   });
   return NextResponse.json(bot, { status: 201 });
-}
+});
 
 function nextMagic(existing: Bot[]): number {
   const used = new Set(existing.map((b) => b.magic));

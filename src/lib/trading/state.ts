@@ -1,9 +1,8 @@
 import "server-only";
 
-import { getProfile } from "@/lib/auth/account";
 import { activeTrades, bookEquity } from "@/lib/trading/engine";
-import { getSettings, getStore } from "@/lib/trading/store";
-import type { Book, Bot, BrokerAccount, EquityPoint, EventLog, Settings, Signal, Trade } from "@/lib/trading/types";
+import { forUser, getSettings } from "@/lib/trading/store";
+import type { Book, Bot, BrokerAccount, EquityPoint, EventLog, Settings, Signal, Trade, User } from "@/lib/trading/types";
 
 export type PublicBroker = Omit<BrokerAccount, "encrypted_token" | "bridge_key_hash">;
 
@@ -27,7 +26,10 @@ export interface DashboardState {
   logs: EventLog[];
   equity: Record<Book, EquityPoint[]>;
   kpis: Record<Book, BookKpis>;
-  meta: { backend: "supabase" | "file"; auth: boolean; generated_at: string; display_name: string | null };
+  meta: {
+    generated_at: string;
+    user: { id: string; email: string | null; display_name: string | null; role: User["role"]; email_verified: boolean };
+  };
 }
 
 export function publicBroker(b: BrokerAccount): PublicBroker {
@@ -37,8 +39,8 @@ export function publicBroker(b: BrokerAccount): PublicBroker {
   return rest as PublicBroker;
 }
 
-async function kpisFor(book: Book, settings: Settings, closed: Trade[], open: Trade[]): Promise<BookKpis> {
-  const equity = await bookEquity(book);
+async function kpisFor(userId: string, book: Book, settings: Settings, closed: Trade[], open: Trade[]): Promise<BookKpis> {
+  const equity = await bookEquity(userId, book);
   const since = Date.now() - 30 * 86400_000;
   const recent = closed.filter((t) => t.book === book && t.closed_at && Date.parse(t.closed_at) >= since);
   const wins = recent.filter((t) => t.pnl > 0);
@@ -56,26 +58,25 @@ async function kpisFor(book: Book, settings: Settings, closed: Trade[], open: Tr
   };
 }
 
-export async function getDashboardState(): Promise<DashboardState> {
-  const store = getStore();
-  const settings = await getSettings();
+export async function getDashboardState(user: User): Promise<DashboardState> {
+  const store = forUser(user.id);
+  const settings = await getSettings(user.id);
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
 
-  const [brokers, bots, open, closed, signals, logs, equity, profile] = await Promise.all([
+  const [brokers, bots, open, closed, signals, logs, equity] = await Promise.all([
     store.brokers.all({ order: { field: "created_at" } }),
     store.bots.all({ order: { field: "created_at" } }),
-    activeTrades(),
+    activeTrades(user.id),
     store.trades.all({ in: { field: "status", values: ["closed", "rejected"] }, order: { field: "closed_at", ascending: false }, limit: 200 }),
     store.signals.all({ order: { field: "received_at", ascending: false }, limit: 50 }),
     store.logs.all({ order: { field: "created_at", ascending: false }, limit: 150 }),
     store.equity.all({ since: { field: "created_at", value: since }, order: { field: "created_at" } }),
-    getProfile(),
   ]);
 
   const closedOnly = closed.filter((t) => t.status === "closed");
   const [real, demo] = await Promise.all([
-    kpisFor("real", settings, closedOnly, open),
-    kpisFor("demo", settings, closedOnly, open),
+    kpisFor(user.id, "real", settings, closedOnly, open),
+    kpisFor(user.id, "demo", settings, closedOnly, open),
   ]);
 
   return {
@@ -92,10 +93,15 @@ export async function getDashboardState(): Promise<DashboardState> {
     },
     kpis: { real, demo },
     meta: {
-      backend: store.backend,
-      auth: Boolean(process.env.APP_PASSWORD),
       generated_at: new Date().toISOString(),
-      display_name: profile.display_name,
+      user: {
+        id: user.id,
+        email: user.email,
+        display_name: user.display_name,
+        role: user.role,
+        email_verified: Boolean(user.email_verified_at),
+      },
     },
+
   };
 }

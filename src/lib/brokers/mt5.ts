@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { adjustBaseline, bookOf } from "@/lib/trading/engine";
-import { getStore, log, newId, nowIso } from "@/lib/trading/store";
+import { forUser, getStore, log, newId, nowIso } from "@/lib/trading/store";
 import type { BrokerAccount, Mt5Command, Trade } from "@/lib/trading/types";
 
 /**
@@ -71,7 +71,9 @@ export const mt5ReportSchema = z.object({
 export type Mt5Report = z.infer<typeof mt5ReportSchema>;
 
 export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report): Promise<string> {
-  const store = getStore();
+  const userId = account.user_id;
+  const store = forUser(userId);
+  const commands = getStore().commands;
   await store.brokers.update(account.id, {
     login: report.login,
     server: report.server,
@@ -84,15 +86,15 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
     last_sync_at: nowIso(),
   });
   // First check-in: the account's equity joins its book without counting as profit.
-  if (!account.last_sync_at) await adjustBaseline(bookOf(report), report.equity - account.equity);
+  if (!account.last_sync_at) await adjustBaseline(userId, bookOf(report), report.equity - account.equity);
 
   // 1. Results of commands sent last time.
   for (const r of report.results) {
-    const command = await store.commands.get(r.command_id);
+    const command = await commands.get(r.command_id);
     if (!command || command.account_id !== account.id) continue;
-    await store.commands.update(command.id, { status: r.ok ? "done" : "failed", result: r });
+    await commands.update(command.id, { status: r.ok ? "done" : "failed", result: r });
     if (!command.trade_id || command.type !== "open") {
-      if (!r.ok) await log("error", `MT5 ${command.type} failed: ${r.error ?? "unknown error"}`);
+      if (!r.ok) await log("error", `MT5 ${command.type} failed: ${r.error ?? "unknown error"}`, { user_id: userId });
       continue;
     }
     const trade = await store.trades.get(command.trade_id);
@@ -105,11 +107,12 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
         size: r.volume ?? trade.size,
       });
       await log("trade", `MT5 filled ${trade.side.toUpperCase()} ${trade.symbol} ${r.volume} lots @ ${r.price}`, {
+        user_id: userId,
         bot_id: trade.bot_id,
       });
     } else {
       await store.trades.update(trade.id, { status: "rejected", close_reason: r.error ?? "Rejected by MT5", closed_at: nowIso() });
-      await log("error", `MT5 rejected ${trade.symbol}: ${r.error ?? "unknown error"}`, { bot_id: trade.bot_id });
+      await log("error", `MT5 rejected ${trade.symbol}: ${r.error ?? "unknown error"}`, { user_id: userId, bot_id: trade.bot_id });
     }
   }
 
@@ -146,7 +149,7 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
         close_reason: trade.close_reason ?? "Closed on MT5 (stop/target/manual)",
         closed_at: nowIso(),
       });
-      await log("trade", `MT5 closed ${trade.symbol} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`, { bot_id: trade.bot_id });
+      await log("trade", `MT5 closed ${trade.symbol} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`, { user_id: userId, bot_id: trade.bot_id });
     }
   }
 
@@ -157,6 +160,7 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
     const bot = bots.find((b) => b.magic === p.magic && p.magic !== 0);
     const trade: Trade = {
       id: newId(),
+      user_id: userId,
       bot_id: bot?.id ?? null,
       broker_account_id: account.id,
       book: bookOf(report),
@@ -185,22 +189,22 @@ export async function ingestMt5Report(account: BrokerAccount, report: Mt5Report)
 
   // 4. Commands the EA received but never confirmed (e.g. terminal restarted mid-order).
   const staleBefore = new Date(Date.now() - 3 * 60_000).toISOString();
-  for (const c of await store.commands.all({ eq: { account_id: account.id, status: "sent" } })) {
+  for (const c of await commands.all({ eq: { account_id: account.id, status: "sent" } })) {
     if (!c.sent_at || c.sent_at > staleBefore) continue;
-    await store.commands.update(c.id, { status: "failed", result: { error: "No confirmation from the MT5 bridge" } });
+    await commands.update(c.id, { status: "failed", result: { error: "No confirmation from the MT5 bridge" } });
     const trade = c.trade_id ? await store.trades.get(c.trade_id) : null;
     if (c.type === "open" && trade?.status === "pending") {
       await store.trades.update(trade.id, { status: "rejected", close_reason: "No confirmation from the MT5 bridge", closed_at: nowIso() });
     }
-    await log("warn", `MT5 ${c.type} command was not confirmed by the bridge within 3 minutes`, { bot_id: trade?.bot_id });
+    await log("warn", `MT5 ${c.type} command was not confirmed by the bridge within 3 minutes`, { user_id: userId, bot_id: trade?.bot_id });
   }
 
   // 5. Hand over queued commands.
-  const queued = await store.commands.all({
+  const queued = await commands.all({
     eq: { account_id: account.id, status: "queued" },
     order: { field: "created_at", ascending: true },
   });
-  for (const c of queued) await store.commands.update(c.id, { status: "sent", sent_at: nowIso() });
+  for (const c of queued) await commands.update(c.id, { status: "sent", sent_at: nowIso() });
   return queued.map(formatCommand).join("\n");
 }
 

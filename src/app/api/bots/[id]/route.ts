@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { getStrategy } from "@/lib/strategies";
 import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
 import { activeTrades, closeTrade } from "@/lib/trading/engine";
-import { getSettings, getStore, log } from "@/lib/trading/store";
+import { forUser, getSettings, log } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +23,10 @@ const patchSchema = z.object({
   script: z.string().min(1).max(MAX_SCRIPT_LENGTH).optional(),
 });
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
-  const store = getStore();
+type Ctx = { params: { id: string } };
+
+export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
+  const store = forUser(user.id);
   const bot = await store.bots.get(params.id);
   if (!bot) return jsonError(404, "BOT_NOT_FOUND");
 
@@ -52,11 +55,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
   if (patch.broker_account_id !== undefined && patch.broker_account_id !== bot.broker_account_id) {
     if (!patch.broker_account_id || !(await store.brokers.get(patch.broker_account_id))) return jsonError(400, "UNKNOWN_BROKER");
-    if ((await activeTrades({ bot_id: bot.id })).length) return jsonError(409, "CLOSE_TRADES_BEFORE_SWITCHING_ACCOUNT");
+    if ((await activeTrades(user.id, { bot_id: bot.id })).length) return jsonError(409, "CLOSE_TRADES_BEFORE_SWITCHING_ACCOUNT");
   }
 
   if (patch.status === "running") {
-    if ((await getSettings()).kill_switch) return jsonError(409, "KILL_SWITCH_ON");
+    if ((await getSettings(user.id)).kill_switch) return jsonError(409, "KILL_SWITCH_ON");
     if (!(patch.broker_account_id ?? bot.broker_account_id)) return jsonError(400, "BOT_NEEDS_BROKER");
     patch.paused_reason = null;
   } else if (patch.status === "paused") {
@@ -64,19 +67,19 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 
   const updated = await store.bots.update(bot.id, patch);
-  if (script !== undefined) await log("info", `Bot "${bot.name}" script updated`, { bot_id: bot.id });
+  if (script !== undefined) await log("info", `Bot "${bot.name}" script updated`, { user_id: user.id, bot_id: bot.id });
   if (patch.status && patch.status !== bot.status) {
-    await log("info", `Bot "${bot.name}" ${patch.status === "running" ? "started" : "paused"}`, { bot_id: bot.id });
+    await log("info", `Bot "${bot.name}" ${patch.status === "running" ? "started" : "paused"}`, { user_id: user.id, bot_id: bot.id });
   }
   return NextResponse.json(updated);
-}
+});
 
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
-  const store = getStore();
+export const DELETE = withUser<Ctx>(async (user, _request, { params }) => {
+  const store = forUser(user.id);
   const bot = await store.bots.get(params.id);
   if (!bot) return jsonError(404, "BOT_NOT_FOUND");
-  for (const trade of await activeTrades({ bot_id: bot.id })) await closeTrade(trade, "Bot deleted");
+  for (const trade of await activeTrades(user.id, { bot_id: bot.id })) await closeTrade(trade, "Bot deleted");
   await store.bots.remove(bot.id);
-  await log("info", `Bot "${bot.name}" deleted`);
+  await log("info", `Bot "${bot.name}" deleted`, { user_id: user.id });
   return NextResponse.json({ ok: true });
-}
+});

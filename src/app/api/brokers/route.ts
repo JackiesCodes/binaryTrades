@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { derivAccounts } from "@/lib/brokers/deriv";
+import { needsVerifiedEmail, withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { encryptSecret, randomToken, sha256 } from "@/lib/secrets";
 import { adjustBaseline, bookOf } from "@/lib/trading/engine";
 import { publicBroker } from "@/lib/trading/state";
-import { getStore, log, newId, nowIso } from "@/lib/trading/store";
+import { forUser, getStore, log, newId, nowIso } from "@/lib/trading/store";
 import type { BrokerAccount } from "@/lib/trading/types";
 
 export const dynamic = "force-dynamic";
@@ -21,19 +22,22 @@ const schema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("mt5"), label: z.string().trim().max(40).optional() }),
 ]);
 
-export async function GET() {
-  const brokers = await getStore().brokers.all({ order: { field: "created_at" } });
+export const GET = withUser(async (user) => {
+  const brokers = await forUser(user.id).brokers.all({ order: { field: "created_at" } });
   return NextResponse.json(brokers.map(publicBroker));
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withUser(async (user, request) => {
+  const blocked = needsVerifiedEmail(user);
+  if (blocked) return blocked;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
   const input = parsed.data;
-  const store = getStore();
+  const store = forUser(user.id);
 
   const base: BrokerAccount = {
     id: newId(),
+    user_id: user.id,
     kind: input.kind,
     label: input.label || (input.kind === "deriv" ? "Deriv" : "Exness MT5"),
     status: "waiting",
@@ -62,7 +66,8 @@ export async function POST(request: Request) {
     if (!active.length) return jsonError(400, "DERIV_NO_OPTIONS_ACCOUNTS");
 
     // One connection per Deriv Options account (demo and/or real) the token can reach.
-    const existing = new Set((await store.brokers.all({ eq: { kind: "deriv" } })).map((b) => b.login));
+    // A Deriv account can be connected once across the whole platform.
+    const existing = new Set((await getStore().brokers.all({ eq: { kind: "deriv" } })).map((b) => b.login));
     const encrypted = encryptSecret(input.token);
     const added: BrokerAccount[] = [];
     for (const a of active) {
@@ -83,8 +88,8 @@ export async function POST(request: Request) {
         last_sync_at: nowIso(),
       };
       await store.brokers.insert(account);
-      await adjustBaseline(bookOf(account), account.equity);
-      await log("info", `Deriv ${isDemo ? "demo" : "real"} account ${a.account_id} connected`);
+      await adjustBaseline(user.id, bookOf(account), account.equity);
+      await log("info", `Deriv ${isDemo ? "demo" : "real"} account ${a.account_id} connected`, { user_id: user.id });
       added.push(account);
     }
     if (!added.length) return jsonError(409, "DERIV_ALREADY_CONNECTED");
@@ -95,6 +100,6 @@ export async function POST(request: Request) {
   const bridgeKey = `bt_${randomToken(24)}`;
   const account: BrokerAccount = { ...base, bridge_key_hash: sha256(bridgeKey) };
   await store.brokers.insert(account);
-  await log("info", `${account.label} added — waiting for the MT5 bridge to connect`);
+  await log("info", `${account.label} added — waiting for the MT5 bridge to connect`, { user_id: user.id });
   return NextResponse.json({ broker: publicBroker(account), bridge_key: bridgeKey }, { status: 201 });
-}
+});

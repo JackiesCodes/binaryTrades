@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Check } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import {
@@ -68,6 +69,8 @@ export default function OverviewPage() {
           ) : undefined
         }
       />
+
+      <GettingStarted />
 
       {!state.brokers.length ? (
         <Panel className="border-seal">
@@ -222,5 +225,55 @@ export default function OverviewPage() {
         </>
       )}
     </div>
+  );
+}
+
+function GettingStarted() {
+  const { state } = useDashboard();
+  if (!state) return null;
+  const user = state.meta.user;
+  const hasDemo = state.brokers.some((b) => b.is_demo);
+  const steps = [
+    { done: user.email_verified, label: "Confirm your email", href: "/dashboard/account", hint: "Needed before connecting a broker." },
+    { done: state.brokers.length > 0, label: "Connect a demo account", href: "/dashboard/brokers", hint: "Deriv or any MetaTrader 5 broker." },
+    {
+      done: state.bots.length > 0,
+      label: "Test a strategy and create your first bot",
+      href: "/dashboard/strategy-lab",
+      hint: "Or write your own in Scripts.",
+    },
+    { done: state.bots.some((b) => b.status === "running"), label: "Start it on your demo account", href: "/dashboard/bots", hint: "Watch it for 2–4 weeks before real money." },
+  ];
+  const remaining = steps.filter((s) => !s.done).length;
+  if (!remaining || (hasDemo && state.bots.some((b) => b.status === "running"))) return null;
+  return (
+    <Panel title={`Getting started · ${steps.length - remaining} of ${steps.length} done`}>
+      <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {steps.map((s, i) => (
+          <li key={s.label}>
+            <Link
+              href={s.href}
+              className={cn(
+                "flex h-full gap-3 rounded-xl border p-3 transition-colors",
+                s.done ? "border-profit/30 bg-profit/[0.06]" : "border-white/10 hover:border-profit/40",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono text-xs",
+                  s.done ? "border-profit bg-profit text-ink" : "border-white/20 text-muted-foreground",
+                )}
+              >
+                {s.done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+              </span>
+              <span className="min-w-0">
+                <span className={cn("block text-sm font-medium", s.done ? "text-muted-foreground line-through" : "text-ivory")}>{s.label}</span>
+                <span className="block text-xs text-muted-foreground">{s.hint}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </Panel>
   );
 }

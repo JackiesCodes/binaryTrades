@@ -1,27 +1,42 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { SESSION_COOKIE, isAuthConfigured, readSessionToken } from "@/lib/auth/session";
-import { currentSessionVersion } from "@/lib/auth/session-version";
 
-// Machine-to-machine endpoints authenticate themselves (webhook passphrase,
-// MT5 bridge key, cron secret) and must stay reachable without a browser session.
-const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/webhooks/", "/api/mt5/", "/api/cron/", "/downloads/", "/icons/", "/manifest.webmanifest", "/icon.svg", "/apple-icon"];
+// Public pages and machine endpoints (webhook passphrase, MT5 bridge key and cron
+// secret authenticate themselves). Everything else needs a signed-in user.
+const PUBLIC_PREFIXES = [
+  "/api/auth/",
+  "/api/webhooks/",
+  "/api/mt5/",
+  "/api/cron/",
+  "/downloads/",
+  "/icons/",
+  "/legal/",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/apple-icon",
+  "/robots.txt",
+  "/sitemap.xml",
+];
+const PUBLIC_PAGES = new Set(["/", "/forgot-password", "/reset-password", "/verify-email"]);
+// Signed-in visitors skip these and go straight to their dashboard.
+const AUTH_PAGES = new Set(["/login", "/signup"]);
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
+  if (PUBLIC_PAGES.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   if (!isAuthConfigured()) {
     if (process.env.NODE_ENV !== "production") return NextResponse.next();
-    return new NextResponse("Set APP_PASSWORD to protect your trading dashboard before deploying.", { status: 503 });
+    return new NextResponse("binaryTrades is being set up. Please check back soon.", { status: 503 });
   }
 
+  // The signature is checked here; the API checks the session version and account status on every call.
   const session = await readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
-  if (session) {
-    // Versions only go up, so a cookie newer than a cached value is still valid.
-    const current = await currentSessionVersion(request.nextUrl.origin);
-    if (current === null || session.version >= current) return NextResponse.next();
+  if (AUTH_PAGES.has(pathname)) {
+    return session ? NextResponse.redirect(new URL("/dashboard", request.url)) : NextResponse.next();
   }
+  if (session) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });

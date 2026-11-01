@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
-import { DEFAULT_SETTINGS } from "@/lib/trading/store";
+import { defaultSettings } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 
 const bot = { status: "running", risk_percent: 1 } as Bot;
 const base = {
-  settings: DEFAULT_SETTINGS,
+  settings: defaultSettings("u"),
   book: "real" as const,
   bot,
   equity: 10_000,
@@ -31,7 +31,7 @@ describe("checkRisk", () => {
   });
 
   it("blocks on kill switch, daily loss, drawdown and trade limits", () => {
-    expect(checkRisk({ ...base, settings: { ...DEFAULT_SETTINGS, kill_switch: true } }).ok).toBe(false);
+    expect(checkRisk({ ...base, settings: { ...defaultSettings("u"), kill_switch: true } }).ok).toBe(false);
     expect(checkRisk({ ...base, bookEquity: 9_700 })).toMatchObject({ ok: false, breach: "daily_loss" });
     expect(
       checkRisk({ ...base, bookEquity: 8_400, bookState: { ...base.bookState, day_start_equity: 8_400 } }),

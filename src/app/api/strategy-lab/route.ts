@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { derivCandles } from "@/lib/brokers/deriv";
+import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { defaultParams, getStrategy } from "@/lib/strategies";
 import { optimise, runBacktest } from "@/lib/strategies/backtest";
@@ -21,7 +22,7 @@ const schema = z.object({
   initial_balance: z.coerce.number().min(100).default(10000),
 });
 
-export async function POST(request: Request) {
+export const POST = withUser(async (_user, request) => {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
   const input = parsed.data;
@@ -51,4 +52,4 @@ export async function POST(request: Request) {
   const params = { ...defaultParams(def), ...input.params };
   const result = runBacktest(candles, def, params, options);
   return NextResponse.json({ range, params, ...result, trades: result.trades.slice(-200) });
-}
+});

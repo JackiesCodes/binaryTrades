@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { KeyRound, LogOut, MonitorSmartphone, UserRound } from "lucide-react";
+import { KeyRound, LogOut, MailCheck, MonitorSmartphone, Trash2, UserRound } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -12,10 +12,13 @@ import { Input } from "@/components/ui/input";
 import { api, timeAgo } from "@/lib/client";
 
 interface Profile {
-  display_name: string | null;
   email: string | null;
-  password_source: "custom" | "app_password";
+  display_name: string | null;
+  role: "user" | "admin";
+  email_verified: boolean;
   password_changed_at: string | null;
+  created_at: string;
+  email_enabled: boolean;
 }
 
 export default function ProfilePage() {
@@ -23,7 +26,7 @@ export default function ProfilePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<Profile>("/api/profile").then(setProfile, (e: Error) => setLoadError(e.message));
+    api<Profile>("/api/me").then(setProfile, (e: Error) => setLoadError(e.message));
   }, []);
 
   if (loadError) return <p className="text-sm text-loss">{loadError}</p>;
@@ -31,11 +34,12 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Profile" description="Your name, sign-in password and signed-in devices." />
+      <PageHeader title="Account" description="Your details, sign-in password, signed-in devices and account deletion." />
       <div className="grid gap-5 lg:grid-cols-2">
         <DetailsPanel profile={profile} onSaved={setProfile} />
         <PasswordPanel profile={profile} onSaved={setProfile} />
         <SessionsPanel />
+        <DeletePanel />
       </div>
     </div>
   );
@@ -58,11 +62,13 @@ function DetailsPanel({ profile, onSaved }: { profile: Profile; onSaved: (p: Pro
     e.preventDefault();
     setBusy(true);
     try {
-      onSaved(await api<Profile>("/api/profile", "PATCH", { display_name: name.trim(), email: email.trim() }));
+      const emailChanged = email.trim().toLowerCase() !== (profile.email ?? "");
+      const next = await api<Profile>("/api/me", "PATCH", { display_name: name.trim(), ...(email.trim() ? { email: email.trim() } : {}) });
+      onSaved(next);
       await refresh();
-      toast("Profile saved", "success");
+      toast(emailChanged && !next.email_verified ? `Saved — we sent a confirmation link to ${next.email}` : "Details saved", "success");
     } catch (err) {
-      toast((err as Error).message === "INVALID_REQUEST" ? "Check the email address." : (err as Error).message, "error");
+      toast((err as Error).message, "error");
     } finally {
       setBusy(false);
     }
@@ -81,12 +87,30 @@ function DetailsPanel({ profile, onSaved }: { profile: Profile; onSaved: (p: Pro
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-profit/15 text-base font-semibold text-profit">
             {initials(name || null)}
           </div>
-          <div className="min-w-0 text-sm text-muted-foreground">Shown in the sidebar. Only you can see this dashboard.</div>
+          <div className="min-w-0 text-sm text-muted-foreground">
+            Member since {new Date(profile.created_at).toLocaleDateString()}
+            {profile.role === "admin" && " · Administrator"}
+          </div>
         </div>
         <Field label="Display name">
           <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoComplete="name" placeholder="Your name" />
         </Field>
-        <Field label="Email" hint="For your reference only — binaryTrades sends no emails.">
+        <Field
+          label="Email"
+          hint={
+            profile.email ? (
+              profile.email_verified ? (
+                <span className="inline-flex items-center gap-1 text-profit">
+                  <MailCheck className="h-3.5 w-3.5" /> Confirmed. You sign in with this address.
+                </span>
+              ) : (
+                <span className="text-gold">Not confirmed yet — check your inbox for the link.</span>
+              )
+            ) : (
+              <span className="text-gold">Add your email: from then on you sign in with it and your password.</span>
+            )
+          }
+        >
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={120} autoComplete="email" placeholder="you@example.com" />
         </Field>
         <Button type="submit" disabled={busy || !dirty}>
@@ -113,7 +137,7 @@ function PasswordPanel({ profile, onSaved }: { profile: Profile; onSaved: (p: Pr
     setBusy(true);
     setError(null);
     try {
-      onSaved(await api<Profile>("/api/profile/password", "POST", { current_password: current, new_password: next }));
+      onSaved(await api<Profile>("/api/me/password", "POST", { current_password: current, new_password: next }));
       setCurrent("");
       setNext("");
       setConfirm("");
@@ -132,20 +156,9 @@ function PasswordPanel({ profile, onSaved }: { profile: Profile; onSaved: (p: Pr
           <KeyRound className="h-4 w-4" /> Password
         </span>
       }
-      action={
-        profile.password_source === "custom" ? (
-          <Badge variant="profit">Changed {timeAgo(profile.password_changed_at)}</Badge>
-        ) : (
-          <Badge variant="warning">Using setup password</Badge>
-        )
-      }
+      action={profile.password_changed_at ? <Badge variant="muted">Changed {timeAgo(profile.password_changed_at)}</Badge> : undefined}
     >
       <form onSubmit={save} className="space-y-3">
-        {profile.password_source === "app_password" && (
-          <p className="text-xs text-muted-foreground">
-            You&apos;re signing in with the password from setup (APP_PASSWORD). Set your own here; after that, only the new one works.
-          </p>
-        )}
         <Field label="Current password">
           <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
         </Field>
@@ -182,7 +195,7 @@ function SessionsPanel() {
     if (!ok) return;
     setBusy(true);
     try {
-      await api("/api/profile/sessions", "DELETE");
+      await api("/api/me/sessions", "DELETE");
       toast("Other devices signed out", "success");
     } catch (e) {
       toast((e as Error).message, "error");
@@ -193,7 +206,7 @@ function SessionsPanel() {
 
   const signOut = async () => {
     await api("/api/auth/logout", "POST").catch(() => undefined);
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   return (
@@ -214,6 +227,51 @@ function SessionsPanel() {
         </Button>
         <Button variant="ghost" className="text-loss" onClick={signOut}>
           <LogOut /> Sign out here
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+function DeletePanel() {
+  const { confirm, toast } = useFeedback();
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const remove = async () => {
+    const ok = await confirm({
+      title: "Delete your account permanently?",
+      description:
+        "Your bots stop, positions binaryTrades opened are closed where the broker allows, and your broker connections, bots, scripts and history are deleted. This can't be undone. Your money stays in your broker accounts.",
+      confirmLabel: "Delete my account",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api("/api/me", "DELETE", { password });
+      window.location.href = "/";
+    } catch (e) {
+      toast((e as Error).message, "error");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2 text-loss">
+          <Trash2 className="h-4 w-4" /> Delete account
+        </span>
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        Removes your account and everything in it from binaryTrades. Funds are held by your broker, not by us — they are not affected.
+      </p>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" />
+        <Button variant="destructive" onClick={remove} disabled={busy || !password} className="shrink-0">
+          {busy ? "Deleting…" : "Delete account"}
         </Button>
       </div>
     </Panel>

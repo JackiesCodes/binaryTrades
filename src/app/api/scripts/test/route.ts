@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { derivCandles } from "@/lib/brokers/deriv";
+import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { runBacktest } from "@/lib/strategies/backtest";
 import { MAX_SCRIPT_LENGTH, ScriptError, checkScript, scriptStrategy } from "@/lib/strategies/script";
@@ -20,7 +21,7 @@ const schema = z.object({
   cost_percent: z.coerce.number().min(0).max(1).default(0.02),
 });
 
-export async function POST(request: Request) {
+export const POST = withUser(async (_user, request) => {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
   const input = parsed.data;
@@ -64,4 +65,4 @@ export async function POST(request: Request) {
     if (error instanceof ScriptError) return jsonError(400, "SCRIPT_ERROR", error.message);
     throw error;
   }
-}
+});

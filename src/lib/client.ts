@@ -1,7 +1,22 @@
 // Browser-side helpers shared by the dashboard pages.
 
 const MESSAGES: Record<string, string> = {
-  UNAUTHENTICATED: "Your session expired — please log in again.",
+  UNAUTHENTICATED: "Your session expired — please sign in again.",
+  WRONG_EMAIL_OR_PASSWORD: "That email and password don't match an account.",
+  TOO_MANY_ATTEMPTS: "Too many attempts. Wait a few minutes and try again.",
+  EMAIL_TAKEN: "There's already an account with that email. Sign in instead, or reset your password.",
+  INVALID_EMAIL: "Enter a valid email address.",
+  ACCEPT_TERMS: "Please accept the Terms and the Risk Disclosure to continue.",
+  SIGNUPS_CLOSED: "New sign-ups are paused right now. Please check back soon.",
+  INVALID_LINK: "This link is invalid or has expired. Request a new one.",
+  RESET_UNAVAILABLE: "Password reset by email isn't available yet. Contact support to regain access.",
+  EMAIL_UNAVAILABLE: "Email sending isn't set up yet.",
+  EMAIL_FAILED: "We couldn't send the email. Try again in a minute.",
+  EMAIL_NOT_VERIFIED: "Confirm your email address first — check your inbox for the link.",
+  ADD_EMAIL_FIRST: "Add your email address on the Account page first.",
+  LAST_ADMIN: "You're the only administrator. Make someone else an admin before deleting this account.",
+  ADMIN_ONLY: "Only administrators can do that.",
+  CANNOT_CHANGE_YOURSELF: "You can't change your own access here.",
   UNKNOWN_BROKER: "That broker account no longer exists.",
   UNKNOWN_STRATEGY: "Pick a strategy for this bot.",
   KILL_SWITCH_ON: "Release the kill switch before starting bots.",
@@ -21,7 +36,6 @@ const MESSAGES: Record<string, string> = {
   SCRIPT_REQUIRED: "Write or paste a script first.",
   NOT_A_SCRIPT_BOT: "Only script bots have a script to edit.",
   BOT_NOT_FOUND: "That bot no longer exists.",
-  APP_PASSWORD_NOT_SET: "Set APP_PASSWORD in your environment to enable login.",
 };
 
 export class ApiError extends Error {}
@@ -34,7 +48,9 @@ export async function api<T = unknown>(path: string, method = "GET", body?: unkn
     cache: "no-store",
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== "/api/auth/login") {
+  if (res.status === 401 && (data as { error?: string }).error === "UNAUTHENTICATED") {
+    // Clear a cookie that is signed but no longer valid (password changed elsewhere), then sign in again.
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
   }
   if (!res.ok) {

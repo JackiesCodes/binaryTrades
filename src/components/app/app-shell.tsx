@@ -18,6 +18,7 @@ import {
   ScrollText,
   ShieldCheck,
   UserRound,
+  Users,
 } from "lucide-react";
 
 import { BrandMark, Wordmark } from "@/components/app/brand";
@@ -37,8 +38,14 @@ const NAV = [
   { href: "/dashboard/brokers", label: "Brokers", short: "Brokers", icon: PlugZap },
   { href: "/dashboard/risk", label: "Risk Guard", short: "Risk", icon: ShieldCheck },
   { href: "/dashboard/logs", label: "Alerts & Logs", short: "Logs", icon: ScrollText },
-  { href: "/dashboard/profile", label: "Profile", short: "Profile", icon: UserRound },
+  { href: "/dashboard/account", label: "Account", short: "Account", icon: UserRound },
 ];
+const ADMIN_NAV = { href: "/dashboard/admin", label: "Admin", short: "Admin", icon: Users };
+
+function useNav() {
+  const { state } = useDashboard();
+  return state?.meta.user.role === "admin" ? [...NAV, ADMIN_NAV] : NAV;
+}
 
 // Phones show the first four in the tab bar; the rest live under "More".
 const TAB_COUNT = 4;
@@ -103,13 +110,14 @@ function EngineStatus({ compact = false }: { compact?: boolean }) {
 
 function Sidebar() {
   const pathname = usePathname();
+  const nav = useNav();
   return (
     <aside className="hidden border-r border-white/5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:shrink-0 lg:flex-col">
       <div className="px-5 py-6">
         <Logo className="text-lg" />
       </div>
       <nav className="flex flex-col gap-1 px-3">
-        {NAV.map(({ href, label, icon: Icon }) => (
+        {nav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
@@ -135,18 +143,20 @@ function Sidebar() {
 
 function ProfileChip() {
   const { state } = useDashboard();
-  const name = state?.meta.display_name?.trim() || "Owner";
+  const user = state?.meta.user;
+  const name = user?.display_name?.trim() || user?.email?.split("@")[0] || "Your account";
   const initials = name
-    .split(/\s+/)
+    .split(/[\s._-]+/)
+    .filter(Boolean)
     .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
+    .map((p: string) => p[0]!.toUpperCase())
     .join("");
   return (
-    <Link href="/dashboard/profile" className="flex items-center gap-2.5 rounded-xl px-2 py-2 text-sm hover:bg-white/[0.04]">
+    <Link href="/dashboard/account" className="flex items-center gap-2.5 rounded-xl px-2 py-2 text-sm hover:bg-white/[0.04]">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-profit/15 text-xs font-semibold text-profit">{initials}</span>
       <span className="min-w-0">
         <span className="block truncate font-medium">{name}</span>
-        <span className="block text-xs text-muted-foreground">Profile &amp; password</span>
+        <span className="block truncate text-xs text-muted-foreground">{user?.email ?? "Add your email"}</span>
       </span>
     </Link>
   );
@@ -192,7 +202,7 @@ function useKillSwitch() {
 
 async function logout() {
   await api("/api/auth/logout", "POST").catch(() => undefined);
-  window.location.href = "/login";
+  window.location.href = "/";
 }
 
 function TopBar() {
@@ -244,13 +254,12 @@ function TopBar() {
             <span className="sm:hidden">{kill.on ? "Release" : "Stop all"}</span>
             <span className="hidden sm:inline">{kill.on ? "Release kill switch" : "Kill switch"}</span>
           </Button>
-          {state?.meta.auth && (
-            <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out" className="hidden lg:inline-flex">
-              <LogOut />
-            </Button>
-          )}
+          <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out" className="hidden lg:inline-flex">
+            <LogOut />
+          </Button>
         </div>
       </div>
+      <AccountBanner />
       {kill.on && (
         <div className="border-t border-loss/30 bg-loss/10 px-4 py-2 text-center text-xs font-medium text-loss sm:text-sm">
           Kill switch is ON — no new trades will be placed.
@@ -260,12 +269,46 @@ function TopBar() {
   );
 }
 
+function AccountBanner() {
+  const { state } = useDashboard();
+  const { toast } = useFeedback();
+  const user = state?.meta.user;
+  if (!user) return null;
+  if (!user.email) {
+    return (
+      <div className="border-t border-gold/30 bg-gold/10 px-4 py-2 text-center text-xs text-gold sm:text-sm">
+        Add your email address to finish upgrading your account.{" "}
+        <Link href="/dashboard/account" className="font-semibold underline">
+          Add email
+        </Link>
+      </div>
+    );
+  }
+  if (user.email_verified) return null;
+  const resend = async () => {
+    try {
+      await api("/api/auth/resend-verification", "POST");
+      toast(`Confirmation email sent to ${user.email}`, "success");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+  return (
+    <div className="border-t border-gold/30 bg-gold/10 px-4 py-2 text-center text-xs text-gold sm:text-sm">
+      Confirm your email ({user.email}) to connect broker accounts.{" "}
+      <button onClick={resend} className="font-semibold underline">
+        Resend the link
+      </button>
+    </div>
+  );
+}
+
 function TabBar() {
   const pathname = usePathname();
-  const { state } = useDashboard();
+  const nav = useNav();
   const [moreOpen, setMoreOpen] = useState(false);
-  const tabs = NAV.slice(0, TAB_COUNT);
-  const more = NAV.slice(TAB_COUNT);
+  const tabs = nav.slice(0, TAB_COUNT);
+  const more = nav.slice(TAB_COUNT);
   const moreActive = more.some((n) => isActive(pathname, n.href));
 
   useEffect(() => setMoreOpen(false), [pathname]);
@@ -330,11 +373,9 @@ function TabBar() {
                 {label}
               </Link>
             ))}
-            {state?.meta.auth && (
-              <button onClick={logout} className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm text-loss">
-                <LogOut className="h-4 w-4" /> Log out
-              </button>
-            )}
+            <button onClick={logout} className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm text-loss">
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
           </div>
           <EngineStatus />
         </DialogContent>

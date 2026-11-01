@@ -5,7 +5,7 @@ import { decryptSecret } from "@/lib/secrets";
 import { atrSeries, getStrategy } from "@/lib/strategies";
 import { SCRIPT_STRATEGY_ID, scriptStrategy } from "@/lib/strategies/script";
 import { advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
-import { dayKey, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
+import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
 import type { Book, Bot, BrokerAccount, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
 
 /** External calls, swappable in tests. */
@@ -39,8 +39,9 @@ export async function latestPrice(dataSymbol: string): Promise<number | null> {
 // ---------------------------------------------------------------------------
 // Equity and book state
 
-export async function activeTrades(filter: Partial<Trade> = {}): Promise<Trade[]> {
-  return getStore().trades.all({ eq: filter, in: { field: "status", values: ACTIVE } });
+/** One user's open and pending trades, optionally filtered further. */
+export async function activeTrades(userId: string, filter: Partial<Trade> = {}): Promise<Trade[]> {
+  return forUser(userId).trades.all({ eq: filter, in: { field: "status", values: ACTIVE } });
 }
 
 /** Token, App ID and account for a connected Deriv account. */
@@ -56,16 +57,16 @@ export function bookOf(broker: Pick<BrokerAccount, "is_demo">): Book {
   return broker.is_demo ? "demo" : "real";
 }
 
-export async function bookEquity(book: Book): Promise<number> {
+export async function bookEquity(userId: string, book: Book): Promise<number> {
   // Last known equity of every account, connected or not: a terminal going
   // offline must not look like a 100% drawdown and fire the kill switch.
-  const brokers = await getStore().brokers.all();
+  const brokers = await forUser(userId).brokers.all();
   return brokers.filter((b) => bookOf(b) === book).reduce((sum, b) => sum + b.equity, 0);
 }
 
 /** Bots trading on accounts of the given kind. */
-async function botsInBook(book: Book, filter: Partial<Bot> = {}): Promise<Bot[]> {
-  const store = getStore();
+async function botsInBook(userId: string, book: Book, filter: Partial<Bot> = {}): Promise<Bot[]> {
+  const store = forUser(userId);
   const ids = new Set((await store.brokers.all()).filter((b) => bookOf(b) === book).map((b) => b.id));
   return (await store.bots.all({ eq: filter })).filter((b) => b.broker_account_id && ids.has(b.broker_account_id));
 }
@@ -74,11 +75,11 @@ async function botsInBook(book: Book, filter: Partial<Bot> = {}): Promise<Bot[]>
  * Shift a book's day-start and peak when an account joins or leaves, so
  * adding a broker isn't counted as profit and removing one as a loss.
  */
-export async function adjustBaseline(book: Book, delta: number): Promise<void> {
+export async function adjustBaseline(userId: string, book: Book, delta: number): Promise<void> {
   if (!delta) return;
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   const state = settings.books[book];
-  await updateSettings({
+  await updateSettings(userId, {
     books: {
       ...settings.books,
       [book]: {
@@ -90,12 +91,12 @@ export async function adjustBaseline(book: Book, delta: number): Promise<void> {
   });
 }
 
-async function refreshBook(book: Book) {
-  const settings = await getSettings();
-  const equity = await bookEquity(book);
+async function refreshBook(userId: string, book: Book) {
+  const settings = await getSettings(userId);
+  const equity = await bookEquity(userId, book);
   const state = advanceBookState(settings.books[book], equity, dayKey());
   if (JSON.stringify(state) !== JSON.stringify(settings.books[book])) {
-    await updateSettings({ books: { ...settings.books, [book]: state } });
+    await updateSettings(userId, { books: { ...settings.books, [book]: state } });
   }
   return { equity, state };
 }
@@ -118,14 +119,15 @@ export async function openTrade(
   bot: Bot,
   req: OpenRequest,
 ): Promise<{ ok: true; trade: Trade } | { ok: false; reason: string }> {
-  const store = getStore();
+  const userId = bot.user_id;
+  const store = forUser(userId);
   const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
   if (!broker) return { ok: false, reason: "Bot has no broker account — choose one on the Bots page" };
   if (broker.status !== "connected") return { ok: false, reason: `${broker.label} is not connected` };
 
   const book = bookOf(broker);
-  const settings = await getSettings();
-  const { state } = await refreshBook(book);
+  const settings = await getSettings(userId);
+  const { state } = await refreshBook(userId, book);
   const decision = checkRisk({
     settings,
     book,
@@ -133,13 +135,13 @@ export async function openTrade(
     // Size from this account's own equity; limits use the whole book.
     equity: broker.equity,
     bookState: state,
-    bookEquity: await bookEquity(book),
-    openTradesInBook: (await activeTrades({ book })).length,
-    openTradesForBot: (await activeTrades({ bot_id: bot.id })).length,
+    bookEquity: await bookEquity(userId, book),
+    openTradesInBook: (await activeTrades(userId, { book })).length,
+    openTradesForBot: (await activeTrades(userId, { bot_id: bot.id })).length,
   });
 
   if (!decision.ok) {
-    if (decision.breach) await handleBreach(book, decision.breach, decision.reason);
+    if (decision.breach) await handleBreach(userId, book, decision.breach, decision.reason);
     return { ok: false, reason: decision.reason };
   }
 
@@ -153,6 +155,7 @@ export async function openTrade(
 
   const base: Trade = {
     id: newId(),
+    user_id: userId,
     bot_id: bot.id,
     broker_account_id: broker.id,
     book,
@@ -207,6 +210,7 @@ export async function openTrade(
       };
       await store.trades.insert(trade);
       await log("trade", `DERIV ${req.side.toUpperCase()} ${bot.symbol} stake ${res.buy_price} ×${bot.deriv_multiplier}`, {
+        user_id: userId,
         bot_id: bot.id,
         context: { contract_id: res.contract_id },
       });
@@ -214,7 +218,7 @@ export async function openTrade(
     } catch (error) {
       const reason = `Deriv rejected the order: ${(error as Error).message}`;
       await store.trades.insert({ ...base, status: "rejected", close_reason: reason, closed_at: nowIso() });
-      await log("error", reason, { bot_id: bot.id });
+      await log("error", reason, { user_id: userId, bot_id: bot.id });
       return { ok: false, reason };
     }
   }
@@ -222,7 +226,7 @@ export async function openTrade(
   // MT5: queue for the bridge EA, which sizes the lot from risk_money and the stop.
   const trade: Trade = { ...base, size_unit: "lots" };
   await store.trades.insert(trade);
-  await store.commands.insert({
+  await getStore().commands.insert({
     id: newId(),
     account_id: broker.id,
     trade_id: trade.id,
@@ -241,7 +245,7 @@ export async function openTrade(
     created_at: nowIso(),
     sent_at: null,
   });
-  await log("trade", `MT5 ${req.side.toUpperCase()} ${bot.symbol} queued for ${broker.label}`, { bot_id: bot.id });
+  await log("trade", `MT5 ${req.side.toUpperCase()} ${bot.symbol} queued for ${broker.label}`, { user_id: userId, bot_id: bot.id });
   return { ok: true, trade };
 }
 
@@ -249,7 +253,9 @@ export async function openTrade(
 // Closing trades
 
 export async function closeTrade(trade: Trade, reason: string): Promise<Trade> {
-  const store = getStore();
+  const userId = trade.user_id;
+  const store = forUser(userId);
+  const commands = getStore().commands;
   if (!ACTIVE.includes(trade.status)) return trade;
 
   const broker = trade.broker_account_id ? await store.brokers.get(trade.broker_account_id) : null;
@@ -265,6 +271,7 @@ export async function closeTrade(trade: Trade, reason: string): Promise<Trade> {
       closed_at: nowIso(),
     });
     await log("trade", `DERIV close ${trade.symbol} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} (${reason})`, {
+      user_id: userId,
       bot_id: trade.bot_id,
     });
     return closed!;
@@ -272,13 +279,13 @@ export async function closeTrade(trade: Trade, reason: string): Promise<Trade> {
 
   // MT5
   if (trade.status === "pending") {
-    const queued = await store.commands.all({ eq: { trade_id: trade.id, status: "queued" } });
+    const queued = await commands.all({ eq: { trade_id: trade.id, status: "queued" } });
     if (queued.length) {
-      for (const c of queued) await store.commands.update(c.id, { status: "failed", result: { error: "cancelled" } });
+      for (const c of queued) await commands.update(c.id, { status: "failed", result: { error: "cancelled" } });
       return (await store.trades.update(trade.id, { status: "rejected", close_reason: `Cancelled: ${reason}`, closed_at: nowIso() }))!;
     }
   }
-  await store.commands.insert({
+  await commands.insert({
     id: newId(),
     account_id: broker.id,
     trade_id: trade.id,
@@ -289,30 +296,30 @@ export async function closeTrade(trade: Trade, reason: string): Promise<Trade> {
     created_at: nowIso(),
     sent_at: null,
   });
-  await log("trade", `MT5 close ${trade.symbol} queued (${reason})`, { bot_id: trade.bot_id });
+  await log("trade", `MT5 close ${trade.symbol} queued (${reason})`, { user_id: userId, bot_id: trade.bot_id });
   return (await store.trades.update(trade.id, { close_reason: reason }))!;
 }
 
-export async function setKillSwitch(on: boolean, reason = "Kill switch pressed"): Promise<void> {
-  const store = getStore();
-  await updateSettings({ kill_switch: on });
+export async function setKillSwitch(userId: string, on: boolean, reason = "Kill switch pressed"): Promise<void> {
+  const store = forUser(userId);
+  await updateSettings(userId, { kill_switch: on });
   if (!on) {
-    await log("warn", "Kill switch released — bots stay paused until you start them");
+    await log("warn", "Kill switch released — bots stay paused until you start them", { user_id: userId });
     return;
   }
   for (const bot of await store.bots.all({ eq: { status: "running" } })) {
     await store.bots.update(bot.id, { status: "paused", paused_reason: reason });
   }
-  for (const trade of await activeTrades()) {
+  for (const trade of await activeTrades(userId)) {
     try {
       await closeTrade(trade, reason);
     } catch (error) {
-      await log("error", `Could not close ${trade.symbol}: ${(error as Error).message}`, { bot_id: trade.bot_id });
+      await log("error", `Could not close ${trade.symbol}: ${(error as Error).message}`, { user_id: userId, bot_id: trade.bot_id });
     }
   }
   // Also flatten positions binaryTrades does not track (e.g. your own EAs).
   for (const broker of await store.brokers.all({ eq: { kind: "mt5" } })) {
-    await store.commands.insert({
+    await getStore().commands.insert({
       id: newId(),
       account_id: broker.id,
       trade_id: null,
@@ -324,20 +331,20 @@ export async function setKillSwitch(on: boolean, reason = "Kill switch pressed")
       sent_at: null,
     });
   }
-  await log("error", `KILL SWITCH: ${reason}. All bots paused, all positions closing.`);
+  await log("error", `KILL SWITCH: ${reason}. All bots paused, all positions closing.`, { user_id: userId });
 }
 
-async function handleBreach(book: Book, breach: "daily_loss" | "drawdown", reason: string) {
-  const store = getStore();
+async function handleBreach(userId: string, book: Book, breach: "daily_loss" | "drawdown", reason: string) {
+  const store = forUser(userId);
   // A drawdown on real money stops everything; demo accounts never touch real trading.
   if (breach === "drawdown" && book === "real") {
-    await setKillSwitch(true, reason);
+    await setKillSwitch(userId, true, reason);
     return;
   }
-  const running = await botsInBook(book, { status: "running" });
+  const running = await botsInBook(userId, book, { status: "running" });
   if (!running.length) return;
   for (const bot of running) await store.bots.update(bot.id, { status: "paused", paused_reason: reason });
-  await log("warn", `${reason} — paused ${running.length} ${book}-account bot(s) until you restart them`);
+  await log("warn", `${reason} — paused ${running.length} ${book}-account bot(s) until you restart them`, { user_id: userId });
 }
 
 // ---------------------------------------------------------------------------
@@ -356,12 +363,14 @@ export interface SignalInput {
 }
 
 export async function processSignal(input: SignalInput): Promise<Signal> {
-  const store = getStore();
   const { bot } = input;
+  const userId = bot.user_id;
+  const store = forUser(userId);
 
   const record = async (status: Signal["status"], reason: string | null): Promise<Signal> => {
     const signal: Signal = {
       id: newId(),
+      user_id: userId,
       bot_id: bot.id,
       source: input.source,
       action: input.action,
@@ -375,7 +384,7 @@ export async function processSignal(input: SignalInput): Promise<Signal> {
       received_at: nowIso(),
     };
     await store.signals.insert(signal);
-    if (status === "rejected") await log("warn", `${bot.name}: ${input.action} signal rejected — ${reason}`, { bot_id: bot.id });
+    if (status === "rejected") await log("warn", `${bot.name}: ${input.action} signal rejected — ${reason}`, { user_id: userId, bot_id: bot.id });
     return signal;
   };
 
@@ -385,11 +394,11 @@ export async function processSignal(input: SignalInput): Promise<Signal> {
   }
   await store.bots.update(bot.id, { last_signal_at: nowIso() });
 
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   if (settings.kill_switch) return record("rejected", "Kill switch is on");
   if (bot.status !== "running") return record("rejected", "Bot is paused");
 
-  const open = await activeTrades({ bot_id: bot.id });
+  const open = await activeTrades(userId, { bot_id: bot.id });
 
   if (input.action === "close") {
     for (const t of open) await closeTrade(t, "Close signal");
@@ -419,9 +428,9 @@ function closedCandles(candles: Candle[], timeframe: number): Candle[] {
 }
 
 export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
-  const store = getStore();
+  const store = forUser(broker.user_id);
   try {
-    const tracked = await activeTrades({ broker_account_id: broker.id });
+    const tracked = await activeTrades(broker.user_id, { broker_account_id: broker.id });
     const snap = await deps.derivSnapshot(
       derivCredentials(broker),
       tracked.map((t) => t.broker_ref!).filter(Boolean),
@@ -448,6 +457,7 @@ export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
       } else if (!c.is_sold) {
         await store.trades.insert({
           id: newId(),
+          user_id: broker.user_id,
           bot_id: null,
           broker_account_id: broker.id,
           book: bookOf(broker),
@@ -479,7 +489,7 @@ export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
 }
 
 export async function runBuiltinBot(bot: Bot): Promise<string> {
-  const store = getStore();
+  const store = forUser(bot.user_id);
   const def =
     bot.strategy?.id === SCRIPT_STRATEGY_ID && bot.strategy.code
       ? await scriptStrategy(bot.strategy.code, bot.name)
@@ -503,12 +513,12 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
     // A broken script must not keep failing every bar: pause the bot and say why.
     const reason = `Script error — ${(error as Error).message}`;
     await store.bots.update(bot.id, { status: "paused", paused_reason: reason.slice(0, 300) });
-    await log("error", `${bot.name} paused: ${reason}`, { bot_id: bot.id });
+    await log("error", `${bot.name} paused: ${reason}`, { user_id: bot.user_id, bot_id: bot.id });
     return "paused: script error";
   }
   const want = positions[positions.length - 1];
   const prev = positions[positions.length - 2];
-  const open = await activeTrades({ bot_id: bot.id });
+  const open = await activeTrades(bot.user_id, { bot_id: bot.id });
   const current = open[0];
   const currentDir = current ? (current.side === "buy" ? 1 : -1) : 0;
 
@@ -534,20 +544,39 @@ let tickInFlight: Promise<TickReport> | null = null;
 
 export interface TickReport {
   at: string;
+  users: number;
   bots: Record<string, string>;
 }
 
-/** Called every minute by the dashboard (while open) and/or an external cron. */
+/** Called every minute by an open dashboard and/or an external cron; runs every user's bots. */
 export function runEngineTick(): Promise<TickReport> {
   if (!tickInFlight) tickInFlight = doTick().finally(() => (tickInFlight = null));
   return tickInFlight;
 }
 
-let lastEquityPoint: Record<Book, number> = { real: 0, demo: 0 };
+const lastEquityPoint = new Map<string, number>();
 
 async function doTick(): Promise<TickReport> {
   const store = getStore();
-  const report: TickReport = { at: nowIso(), bots: {} };
+  const report: TickReport = { at: nowIso(), users: 0, bots: {} };
+  const active = new Set([...(await store.brokers.all()).map((b) => b.user_id), ...(await store.bots.all()).map((b) => b.user_id)]);
+  const disabled = new Set((await store.users.all({ eq: { disabled: true } })).map((u) => u.id));
+  for (const userId of active) {
+    if (disabled.has(userId)) continue;
+    report.users++;
+    try {
+      Object.assign(report.bots, await tickUser(userId));
+    } catch (error) {
+      await log("error", `Engine error: ${(error as Error).message}`, { user_id: userId });
+    }
+  }
+  return report;
+}
+
+/** One user's share of the engine tick. Bot names in the report are prefixed with the user id. */
+export async function tickUser(userId: string): Promise<Record<string, string>> {
+  const store = forUser(userId);
+  const bots: Record<string, string> = {};
 
   for (const broker of await store.brokers.all()) {
     if (broker.kind === "deriv") await syncDerivAccount(broker);
@@ -556,34 +585,38 @@ async function doTick(): Promise<TickReport> {
     }
   }
 
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   if (!settings.kill_switch) {
     for (const bot of await store.bots.all({ eq: { status: "running", source: "builtin" } })) {
+      const key = `${userId.slice(0, 8)}:${bot.name}`;
       try {
-        report.bots[bot.name] = await runBuiltinBot(bot);
+        bots[key] = await runBuiltinBot(bot);
       } catch (error) {
-        report.bots[bot.name] = `error: ${(error as Error).message}`;
-        await log("error", `${bot.name}: ${(error as Error).message}`, { bot_id: bot.id });
+        bots[key] = `error: ${(error as Error).message}`;
+        await log("error", `${bot.name}: ${(error as Error).message}`, { user_id: userId, bot_id: bot.id });
       }
     }
   }
 
   for (const book of ["real", "demo"] as const) {
-    const { equity, state } = await refreshBook(book);
+    const { equity, state } = await refreshBook(userId, book);
     if (equity <= 0) continue;
-    const s = await getSettings();
+    const s = await getSettings(userId);
+    const label = book === "real" ? "Real" : "Demo";
     if (s.max_drawdown_percent > 0 && state.peak_equity > 0 && !s.kill_switch) {
       const dd = ((state.peak_equity - equity) / state.peak_equity) * 100;
-      if (dd >= s.max_drawdown_percent) await handleBreach(book, "drawdown", `${book === "real" ? "Real" : "Demo"}-account drawdown ${dd.toFixed(1)}% hit the ${s.max_drawdown_percent}% limit`);
+      if (dd >= s.max_drawdown_percent) {
+        await handleBreach(userId, book, "drawdown", `${label}-account drawdown ${dd.toFixed(1)}% hit the ${s.max_drawdown_percent}% limit`);
+      }
     }
     if (s.daily_loss_limit > 0 && state.day_start_equity - equity >= s.daily_loss_limit) {
-      await handleBreach(book, "daily_loss", `${book === "real" ? "Real" : "Demo"}-account daily loss limit of ${s.daily_loss_limit} reached`);
+      await handleBreach(userId, book, "daily_loss", `${label}-account daily loss limit of ${s.daily_loss_limit} reached`);
     }
-    if (Date.now() - lastEquityPoint[book] > 5 * 60_000) {
-      lastEquityPoint = { ...lastEquityPoint, [book]: Date.now() };
-      await store.equity.insert({ id: newId(), book, equity, created_at: nowIso() });
+    const key = `${userId}:${book}`;
+    if (Date.now() - (lastEquityPoint.get(key) ?? 0) > 5 * 60_000) {
+      lastEquityPoint.set(key, Date.now());
+      await store.equity.insert({ id: newId(), user_id: userId, book, equity, created_at: nowIso() });
     }
   }
-
-  return report;
+  return bots;
 }

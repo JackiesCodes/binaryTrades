@@ -18,6 +18,8 @@ export async function POST(request: Request) {
   const hash = sha256(key.trim());
   const [account] = await store.brokers.all({ eq: { bridge_key_hash: hash, kind: "mt5" }, limit: 1 });
   if (!account) return new Response("ERR unknown bridge key", { status: 401 });
+  const owner = await store.users.get(account.user_id);
+  if (!owner || owner.disabled) return new Response("ERR account disabled", { status: 403 });
 
   let body: unknown;
   try {

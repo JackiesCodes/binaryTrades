@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Lock, ShieldCheck } from "lucide-react";
 
-import { BrandMark, Wordmark } from "@/components/app/brand";
+import { Field } from "@/components/app/widgets";
+import { AuthShell } from "@/components/site/chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/client";
@@ -19,7 +20,10 @@ export default function LoginPage() {
 
 function LoginForm() {
   const params = useSearchParams();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // The original single-owner install signed in with a password only, until an email is added.
+  const [passwordOnly, setPasswordOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -28,9 +32,13 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/auth/login", "POST", { password });
+      const res = await api<{ needs_email: boolean }>("/api/auth/login", "POST", { email: passwordOnly ? "" : email, password });
       const next = params.get("next");
-      window.location.href = next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+      window.location.href = res.needs_email
+        ? "/dashboard/account"
+        : next?.startsWith("/") && !next.startsWith("//")
+          ? next
+          : "/dashboard";
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -38,46 +46,46 @@ function LoginForm() {
   };
 
   return (
-    <main className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden px-5 py-[max(2rem,env(safe-area-inset-top))]">
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-engraving [mask-image:radial-gradient(ellipse_at_center,black_10%,transparent_65%)]" />
-      <div className="relative w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <BrandMark className="h-14 w-14" />
-          <Wordmark className="mt-4 text-2xl" />
-          <p className="mt-2 text-sm text-muted-foreground">Auto-trading control room</p>
-        </div>
-
-        <form onSubmit={submit} className="glass-panel space-y-4 p-6">
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Password</span>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
-                autoComplete="current-password"
-                className="pl-10"
-                aria-invalid={Boolean(error)}
-              />
-            </div>
-          </label>
-          {error && (
-            <p role="alert" className="rounded-lg bg-loss/10 px-3 py-2 text-sm text-loss">
-              {error}
-            </p>
-          )}
-          <Button type="submit" className="w-full" disabled={busy || !password}>
-            {busy ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
-
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 text-profit" />
-          Encrypted session · broker keys never leave the server
-        </p>
-      </div>
-    </main>
+    <AuthShell
+      title="Sign in"
+      subtitle="Welcome back."
+      footer={
+        <>
+          New to binaryTrades?{" "}
+          <Link href="/signup" className="font-medium text-profit hover:underline">
+            Create a free account
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={submit} className="space-y-4">
+        {!passwordOnly && (
+          <Field label="Email">
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus required />
+          </Field>
+        )}
+        <Field
+          label="Password"
+          hint={
+            <Link href="/forgot-password" className="hover:text-foreground">
+              Forgot your password?
+            </Link>
+          }
+        >
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required aria-invalid={Boolean(error)} />
+        </Field>
+        {error && (
+          <p role="alert" className="rounded-lg bg-loss/10 px-3 py-2 text-sm text-loss">
+            {error}
+          </p>
+        )}
+        <Button type="submit" className="w-full" disabled={busy || !password || (!passwordOnly && !email)}>
+          {busy ? "Signing in…" : "Sign in"}
+        </Button>
+        <button type="button" onClick={() => setPasswordOnly((v) => !v)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground">
+          {passwordOnly ? "Sign in with email instead" : "Original account owner without an email yet? Sign in with your password only"}
+        </button>
+      </form>
+    </AuthShell>
   );
 }

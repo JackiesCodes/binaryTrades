@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ingestMt5Report, type Mt5Report } from "@/lib/brokers/mt5";
 import { encryptSecret } from "@/lib/secrets";
 import { activeTrades, bookEquity, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
-import { getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
+import { forUser, getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
 import type { Bot, BrokerAccount } from "@/lib/trading/types";
 
 // ---------------------------------------------------------------------------
@@ -41,10 +41,12 @@ deps.derivSnapshot = async (cred) => ({
   contracts: [],
 });
 
-async function derivAccount(token: string, isDemo: boolean, equity: number): Promise<BrokerAccount> {
+const U = "user-a";
+
+async function derivAccount(token: string, isDemo: boolean, equity: number, userId = U): Promise<BrokerAccount> {
   derivEquity[token] = equity;
   const account: BrokerAccount = {
-    id: newId(), kind: "deriv", label: isDemo ? "Deriv demo" : "Deriv real", status: "connected", login: token,
+    id: newId(), user_id: userId, kind: "deriv", label: isDemo ? "Deriv demo" : "Deriv real", status: "connected", login: token,
     server: null, currency: "USD", balance: equity, equity, is_demo: isDemo, encrypted_token: encryptSecret(token), app_id: "12345",
     bridge_key_hash: null, last_sync_at: nowIso(), error: null, created_at: nowIso(),
   };
@@ -55,6 +57,7 @@ async function derivAccount(token: string, isDemo: boolean, equity: number): Pro
 function makeBot(patch: Partial<Bot> = {}): Bot {
   return {
     id: newId(),
+    user_id: U,
     name: "Test bot",
     source: "tradingview",
     broker_account_id: null,
@@ -92,7 +95,7 @@ describe("trading engine", () => {
 
     const s1 = await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1, sl: 1.089 });
     expect(s1.status).toBe("accepted");
-    const [long] = await activeTrades({ bot_id: bot.id });
+    const [long] = await activeTrades(U, { bot_id: bot.id });
     expect(long).toMatchObject({ book: "demo", size_unit: "stake", broker_ref: "c1", broker_account_id: demo.id });
     // $10 risk (1% of 1000) over a 1% stop at ×100 → $10 stake.
     expect(long!.size).toBeCloseTo(10);
@@ -101,7 +104,7 @@ describe("trading engine", () => {
     expect(s2.status).toBe("accepted");
     const closed = await getStore().trades.all({ eq: { status: "closed" } });
     expect(closed[0]!.pnl).toBeCloseTo(5);
-    expect((await activeTrades({ bot_id: bot.id }))[0]!.side).toBe("sell");
+    expect((await activeTrades(U, { bot_id: bot.id }))[0]!.side).toBe("sell");
   });
 
   it("refuses to trade without a broker account", async () => {
@@ -125,7 +128,7 @@ describe("trading engine", () => {
   });
 
   it("a demo loss pauses demo bots only; real bots keep running", async () => {
-    await updateSettings({ daily_loss_limit: 50 });
+    await updateSettings(U, { daily_loss_limit: 50 });
     const demo = await derivAccount("demo", true, 1000);
     const real = await derivAccount("real", false, 1000);
     const demoBot = makeBot({ broker_account_id: demo.id });
@@ -139,22 +142,22 @@ describe("trading engine", () => {
 
     expect((await getStore().bots.get(demoBot.id))!.status).toBe("paused");
     expect((await getStore().bots.get(realBot.id))!.status).toBe("running");
-    expect((await getSettings()).kill_switch).toBe(false);
+    expect((await getSettings(U)).kill_switch).toBe(false);
   });
 
   it("a real-account drawdown fires the kill switch; a demo one does not", async () => {
-    await updateSettings({ daily_loss_limit: 0, max_drawdown_percent: 10 });
+    await updateSettings(U, { daily_loss_limit: 0, max_drawdown_percent: 10 });
     const demo = await derivAccount("demo", true, 1000);
     await runEngineTick();
     derivEquity.demo = 800;
     await runEngineTick();
-    expect((await getSettings()).kill_switch).toBe(false);
+    expect((await getSettings(U)).kill_switch).toBe(false);
 
     await derivAccount("real", false, 1000);
     await runEngineTick();
     derivEquity.real = 850;
     await runEngineTick();
-    expect((await getSettings()).kill_switch).toBe(true);
+    expect((await getSettings(U)).kill_switch).toBe(true);
     expect(demo).toBeTruthy();
   });
 
@@ -163,8 +166,8 @@ describe("trading engine", () => {
     const bot = makeBot({ broker_account_id: demo.id });
     await getStore().bots.insert(bot);
     await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1 });
-    await setKillSwitch(true);
-    expect(await activeTrades()).toHaveLength(0);
+    await setKillSwitch(U, true);
+    expect(await activeTrades(U)).toHaveLength(0);
     expect((await getStore().bots.get(bot.id))!.status).toBe("paused");
   });
 });
@@ -172,7 +175,7 @@ describe("trading engine", () => {
 describe("MT5 bridge", () => {
   async function mt5Account(patch: Partial<BrokerAccount> = {}): Promise<BrokerAccount> {
     const account: BrokerAccount = {
-      id: newId(), kind: "mt5", label: "Exness MT5", status: "connected", login: null, server: null,
+      id: newId(), user_id: U, kind: "mt5", label: "Exness MT5", status: "connected", login: null, server: null,
       currency: "USD", balance: 1000, equity: 1000, is_demo: true, encrypted_token: null, app_id: null,
       bridge_key_hash: "x", last_sync_at: nowIso(), error: null, created_at: nowIso(), ...patch,
     };
@@ -201,7 +204,7 @@ describe("MT5 bridge", () => {
       results: [{ command_id: commandId!, ok: true, ticket: "555", price: 1.1001, volume: 0.1 }],
       positions: [{ ticket: "555", symbol: "EURUSDm", type: "buy", volume: 0.1, price_open: 1.1001, price_current: 1.1011, sl: 1.09, tp: 0, profit: 10, magic: 770001, comment: "" }],
     });
-    let [trade] = await activeTrades({ bot_id: bot.id });
+    let [trade] = await activeTrades(U, { bot_id: bot.id });
     expect(trade).toMatchObject({ status: "open", broker_ref: "555", pnl: 10, book: "demo" });
 
     await ingestMt5Report(account, { ...report, deals: [{ position_id: "555", profit: 25, price: 1.1026 }] });
@@ -213,13 +216,13 @@ describe("MT5 bridge", () => {
     const account = await mt5Account({ equity: 0, last_sync_at: null, status: "waiting", is_demo: false });
     await runEngineTick(); // starts both days at 0
     await ingestMt5Report((await getStore().brokers.get(account.id))!, { ...report, is_demo: true });
-    const settings = await getSettings();
+    const settings = await getSettings(U);
     expect(settings.books.demo.day_start_equity).toBe(1000);
     expect(settings.books.real.day_start_equity).toBe(0);
 
     await getStore().brokers.update(account.id, { status: "waiting" });
-    expect(await bookEquity("demo")).toBe(1000);
-    expect(await bookEquity("real")).toBe(0);
+    expect(await bookEquity(U, "demo")).toBe(1000);
+    expect(await bookEquity(U, "real")).toBe(0);
   });
 
   it("tracks positions from other EAs as external trades", async () => {
@@ -229,7 +232,7 @@ describe("MT5 bridge", () => {
       is_demo: false,
       positions: [{ ticket: "9", symbol: "XAUUSDm", type: "sell", volume: 0.01, price_open: 2400, price_current: 2390, sl: 0, tp: 0, profit: 10, magic: 42, comment: "" }],
     });
-    const [trade] = await activeTrades();
+    const [trade] = await activeTrades(U);
     expect(trade).toMatchObject({ external: true, symbol: "XAUUSDm", magic: 42, book: "real" });
   });
 });
@@ -263,7 +266,7 @@ describe("Deriv credentials", () => {
     });
     await getStore().bots.insert(bot);
     expect(await runBuiltinBot(bot)).toBe("buy");
-    expect(await activeTrades({ bot_id: bot.id })).toHaveLength(1);
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(1);
 
     const broken = makeBot({
       id: newId(),
@@ -273,5 +276,40 @@ describe("Deriv credentials", () => {
     await getStore().bots.insert(broken);
     expect(await runBuiltinBot(broken)).toBe("paused: script error");
     expect(await getStore().bots.get(broken.id)).toMatchObject({ status: "paused", paused_reason: expect.stringContaining("oops") });
+  });
+});
+
+describe("multi-user isolation", () => {
+  it("keeps each user's accounts, bots, trades and limits apart", async () => {
+    const a = await derivAccount("tok-a", true, 1000, "user-a");
+    const b = await derivAccount("tok-b", true, 1000, "user-b");
+    const botA = makeBot({ user_id: "user-a", broker_account_id: a.id });
+    const botB = makeBot({ user_id: "user-b", broker_account_id: b.id });
+    await getStore().bots.insert(botA);
+    await getStore().bots.insert(botB);
+    await processSignal({ bot: botA, source: "manual", action: "buy", price: 1.1, sl: 1.089 });
+
+    const userB = forUser("user-b");
+    expect((await userB.brokers.all()).map((x) => x.id)).toEqual([b.id]);
+    expect(await userB.bots.get(botA.id)).toBeNull();
+    expect(await userB.trades.all()).toHaveLength(0);
+    expect(await userB.bots.update(botA.id, { name: "hijacked" })).toBeNull();
+    await userB.bots.remove(botA.id);
+    expect(await getStore().bots.get(botA.id)).not.toBeNull();
+    // Inserting through a user's view always stamps that user, whatever the row says.
+    const sneaky = await userB.bots.insert(makeBot({ user_id: "user-a" }));
+    expect(sneaky.user_id).toBe("user-b");
+
+    expect(await activeTrades("user-a")).toHaveLength(1);
+    expect(await activeTrades("user-b")).toHaveLength(0);
+
+    // One user's kill switch doesn't touch anyone else.
+    await setKillSwitch("user-a", true);
+    expect((await getSettings("user-a")).kill_switch).toBe(true);
+    expect((await getSettings("user-b")).kill_switch).toBe(false);
+    expect((await getStore().bots.get(botB.id))!.status).toBe("running");
+
+    const report = await runEngineTick();
+    expect(report.users).toBe(2);
   });
 });

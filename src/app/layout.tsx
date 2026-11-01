@@ -16,9 +16,16 @@ const fontMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "binaryTrades — Auto-Trading Control Room",
+  metadataBase: new URL(process.env.APP_URL ?? "https://binarytrades.vercel.app"),
+  title: "binaryTrades — Automated trading with risk control",
   description:
-    "Run, monitor and risk-manage trading bots across Exness (MetaTrader 5), Deriv and TradingView from one dashboard.",
+    "Connect Deriv and MetaTrader 5 accounts, run strategy bots and your own scripts, execute TradingView alerts, and enforce risk limits — from one dashboard.",
+  openGraph: {
+    title: "binaryTrades — Automated trading with risk control",
+    description: "Strategy bots, your own scripts and TradingView alerts on Deriv and MetaTrader 5, with Risk Guard limits on every order.",
+    siteName: "binaryTrades",
+    type: "website",
+  },
   applicationName: "binaryTrades",
   appleWebApp: { capable: true, title: "binaryTrades", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },

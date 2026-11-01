@@ -8,15 +8,16 @@ import postgres from "postgres";
 import { APPLIED_CHECKS, MIGRATIONS } from "@/lib/trading/schema";
 
 import type {
+  AuthToken,
   Bot,
   BrokerAccount,
   EquityPoint,
   EventLog,
   Mt5Command,
-  Profile,
   Settings,
   Signal,
   Trade,
+  User,
 } from "@/lib/trading/types";
 
 /**
@@ -56,10 +57,11 @@ export interface Store {
   commands: Collection<Mt5Command>;
   logs: Collection<EventLog>;
   equity: Collection<EquityPoint>;
-  profile: Collection<Profile>;
+  users: Collection<User>;
+  auth_tokens: Collection<AuthToken>;
 }
 
-const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "profile"] as const;
+const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens"] as const;
 type TableName = (typeof TABLES)[number];
 
 // Logs, signals and equity points grow forever; the file backend keeps the newest N.
@@ -109,6 +111,41 @@ class FileBackend {
       for (const table of TABLES) this.data[table] = parsed[table] ?? [];
     } catch {
       // First run, or unreadable file: start empty.
+    }
+    this.migrateToMultiUser();
+  }
+
+  /** Same as migration 0005: data from the single-owner version belongs to the user "owner". */
+  private migrateToMultiUser() {
+    const owned = ["brokers", "bots", "trades", "signals", "logs", "equity"] as const;
+    let legacy = false;
+    for (const table of owned) {
+      for (const row of this.data[table] as Array<Row & { user_id?: string | null }>) {
+        if (row.user_id === undefined) {
+          row.user_id = "owner";
+          legacy = true;
+        }
+      }
+    }
+    for (const row of this.data.settings) if (row.id === "global") (row as { id: string }).id = "owner";
+    const profile = (this.data as unknown as Record<string, Array<Record<string, unknown>>>).profile?.[0];
+    if ((legacy || profile) && !this.data.users.some((u) => u.id === "owner")) {
+      const now = new Date().toISOString();
+      (this.data.users as unknown as User[]).push({
+        id: "owner",
+        email: typeof profile?.email === "string" ? profile.email.toLowerCase() : null,
+        display_name: (profile?.display_name as string | null) ?? null,
+        password_hash: (profile?.password_hash as string | null) ?? null,
+        role: "admin",
+        email_verified_at: null,
+        session_version: Number(profile?.session_version ?? 1),
+        disabled: false,
+        accepted_terms_at: null,
+        password_changed_at: (profile?.password_changed_at as string | null) ?? null,
+        last_login_at: null,
+        created_at: now,
+        updated_at: now,
+      });
     }
   }
 
@@ -266,7 +303,8 @@ function buildStore(): Store {
       commands: c("commands"),
       logs: c("logs"),
       equity: c("equity"),
-      profile: c("profile"),
+      users: c("users"),
+      auth_tokens: c("auth_tokens"),
     };
   }
 
@@ -281,7 +319,8 @@ function buildStore(): Store {
     commands: file.collection("commands"),
     logs: file.collection("logs"),
     equity: file.collection("equity"),
-    profile: file.collection("profile"),
+    users: file.collection("users"),
+    auth_tokens: file.collection("auth_tokens"),
   };
 }
 
@@ -310,50 +349,112 @@ export function dayKey(date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
-export const DEFAULT_SETTINGS: Settings = {
-  id: "global",
-  kill_switch: false,
-  daily_loss_limit: 250,
-  max_drawdown_percent: 15,
-  max_open_trades: 8,
-  max_trades_per_bot: 1,
-  default_risk_percent: 1,
-  books: {
-    real: { peak_equity: 0, day_key: "", day_start_equity: 0 },
-    demo: { peak_equity: 0, day_key: "", day_start_equity: 0 },
-  },
-  updated_at: new Date(0).toISOString(),
-};
+// ---------------------------------------------------------------------------
+// Per-user access
 
-export async function getSettings(store = getStore()): Promise<Settings> {
-  const existing = await store.settings.get("global");
+type Owned = Row & { user_id: string | null };
+
+/** A collection limited to one user's rows: reads filter by user_id, writes stamp it. */
+function scoped<T extends Owned>(base: Collection<T>, userId: string): Collection<T> {
+  const owns = (row: T | null): row is T => Boolean(row && row.user_id === userId);
+  return {
+    all: (query) => base.all({ ...query, eq: { ...query?.eq, user_id: userId } as Partial<T> }),
+    get: async (id) => {
+      const row = await base.get(id);
+      return owns(row) ? row : null;
+    },
+    insert: (row) => base.insert({ ...row, user_id: userId }),
+    update: async (id, patch) => {
+      if (!owns(await base.get(id))) return null;
+      const rest: Partial<T> = { ...patch };
+      delete rest.user_id;
+      return base.update(id, rest);
+    },
+    remove: async (id) => {
+      if (owns(await base.get(id))) await base.remove(id);
+    },
+  };
+}
+
+export interface UserStore {
+  userId: string;
+  brokers: Collection<BrokerAccount>;
+  bots: Collection<Bot>;
+  trades: Collection<Trade>;
+  signals: Collection<Signal>;
+  logs: Collection<EventLog>;
+  equity: Collection<EquityPoint>;
+}
+
+/** Everything one user may read or change. Use this in every user-facing code path. */
+export function forUser(userId: string, store = getStore()): UserStore {
+  return {
+    userId,
+    brokers: scoped(store.brokers, userId),
+    bots: scoped(store.bots, userId),
+    trades: scoped(store.trades, userId),
+    signals: scoped(store.signals, userId),
+    logs: scoped(store.logs, userId),
+    equity: scoped(store.equity, userId),
+  };
+}
+
+export function defaultSettings(userId: string): Settings {
+  return {
+    id: userId,
+    kill_switch: false,
+    daily_loss_limit: 250,
+    max_drawdown_percent: 15,
+    max_open_trades: 8,
+    max_trades_per_bot: 1,
+    default_risk_percent: 1,
+    books: {
+      real: { peak_equity: 0, day_key: "", day_start_equity: 0 },
+      demo: { peak_equity: 0, day_key: "", day_start_equity: 0 },
+    },
+    updated_at: new Date(0).toISOString(),
+  };
+}
+
+/** A user's Risk Guard settings, created with defaults on first use. */
+export async function getSettings(userId: string, store = getStore()): Promise<Settings> {
+  const defaults = defaultSettings(userId);
+  const existing = await store.settings.get(userId);
   if (existing) {
-    const books = existing.books ?? DEFAULT_SETTINGS.books;
+    const books = existing.books ?? defaults.books;
     return {
-      ...DEFAULT_SETTINGS,
+      ...defaults,
       ...existing,
-      books: { real: books.real ?? DEFAULT_SETTINGS.books.real, demo: books.demo ?? DEFAULT_SETTINGS.books.demo },
+      books: { real: books.real ?? defaults.books.real, demo: books.demo ?? defaults.books.demo },
     };
   }
-  const fresh = { ...DEFAULT_SETTINGS, updated_at: nowIso() };
-  await store.settings.insert(fresh);
+  const fresh = { ...defaults, updated_at: nowIso() };
+  try {
+    await store.settings.insert(fresh);
+  } catch {
+    // Created concurrently by another request.
+    return (await store.settings.get(userId)) ?? fresh;
+  }
   return fresh;
 }
 
-export async function updateSettings(patch: Partial<Settings>, store = getStore()): Promise<Settings> {
-  await getSettings(store);
-  const updated = await store.settings.update("global", { ...patch, updated_at: nowIso() });
+export async function updateSettings(userId: string, patch: Partial<Settings>, store = getStore()): Promise<Settings> {
+  await getSettings(userId, store);
+  const rest: Partial<Settings> = { ...patch };
+  delete rest.id;
+  const updated = await store.settings.update(userId, { ...rest, updated_at: nowIso() });
   return updated!;
 }
 
 export async function log(
   level: EventLog["level"],
   message: string,
-  extra: { bot_id?: string | null; context?: Record<string, unknown> } = {},
+  extra: { user_id: string | null; bot_id?: string | null; context?: Record<string, unknown> },
   store = getStore(),
 ): Promise<void> {
   await store.logs.insert({
     id: newId(),
+    user_id: extra.user_id,
     level,
     message,
     bot_id: extra.bot_id ?? null,

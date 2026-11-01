@@ -16,8 +16,13 @@ MT5 bridge Server URL, TradingView webhooks and the cron scheduler.
   price history, and turn it into a bot (optionally started right away).
   Scripts run in an isolated QuickJS (WebAssembly) sandbox with no network,
   file or key access, a 3-second time limit and a 64 MB memory cap.
-- **Profile**: display name, change your sign-in password, and sign out other
-  devices.
+- **Accounts**: anyone can sign up with email and password. Each account's
+  brokers, bots, scripts, trades and Risk Guard are completely separate.
+  Includes email confirmation and password reset (via Resend), sign-out of
+  other devices, account deletion, and an **Admin** page for administrators.
+- **Public website**: landing page, Terms of Use, Privacy Policy and Risk
+  Disclosure (`/legal/*`). Have a lawyer review the legal pages for your
+  jurisdiction before launch.
 - **Strategy Lab**: backtests on real Deriv price history, plus an optimiser
   that tunes every strategy on 70% of the data and ranks them on the 30% it
   has never seen. Turn the winner into a bot in one click.
@@ -112,14 +117,20 @@ sized by Risk Guard. If a running script throws an error, its bot pauses and
 the error appears on the bot card. TradingView Pine Script can't run here; use
 a TradingView alerts bot for it.
 
-## Your password
+## Accounts and administrators
 
-Until you set your own password under **Profile**, you sign in with
-`APP_PASSWORD`. Once set, only the new password works (stored as a scrypt
-hash), and changing it signs out every other device. If you forget it,
-clear it in the Supabase SQL editor with
-`update profile set password_hash = null;` and sign in with `APP_PASSWORD`
-again.
+- Sign-up is open at `/signup`. Set `SIGNUPS_DISABLED=1` to pause it.
+- Emails listed in `ADMIN_EMAILS` become administrators when they sign up.
+  Administrators can also promote others from the **Admin** page.
+- Everything created by the original single-owner version belongs to the
+  account `owner` (an administrator). Its owner signs in with their password
+  only ("Original account owner…" on the sign-in page) until they add an email
+  on the **Account** page; after that they sign in with email and password.
+- Email confirmation and password reset need `RESEND_API_KEY` and
+  `EMAIL_FROM` on a domain you verified in Resend. Without them, new accounts
+  are trusted without confirmation and "Forgot password" is unavailable.
+- Bots run for every account from one engine tick, so keep the cron job
+  (`/api/cron/tick`) calling every minute.
 
 ## Connecting your accounts
 

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { withUser } from "@/lib/auth/users";
 import { jsonError } from "@/lib/http";
 import { closeTrade } from "@/lib/trading/engine";
-import { getStore, newId, nowIso } from "@/lib/trading/store";
+import { forUser, getStore, newId, nowIso } from "@/lib/trading/store";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
-  const store = getStore();
+export const POST = withUser<{ params: { id: string } }>(async (user, _request, { params }) => {
+  const store = forUser(user.id);
   const trade = await store.trades.get(params.id);
   if (!trade) return jsonError(404, "TRADE_NOT_FOUND");
 
@@ -15,7 +16,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
   if (trade.external && trade.broker_account_id) {
     const broker = await store.brokers.get(trade.broker_account_id);
     if (broker?.kind === "mt5") {
-      await store.commands.insert({
+      await getStore().commands.insert({
         id: newId(),
         account_id: broker.id,
         trade_id: trade.id,
@@ -35,4 +36,4 @@ export async function POST(_request: Request, { params }: { params: { id: string
   } catch (error) {
     return jsonError(502, "CLOSE_FAILED", (error as Error).message);
   }
-}
+});
