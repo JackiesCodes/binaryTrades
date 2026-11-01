@@ -140,8 +140,12 @@ a TradingView alerts bot for it.
 - Email confirmation and password reset need `RESEND_API_KEY` and
   `EMAIL_FROM` on a domain you verified in Resend. Without them, new accounts
   are trusted without confirmation and "Forgot password" is unavailable.
-- Bots run for every account from one engine tick, so keep the cron job
-  (`/api/cron/tick`) calling every minute.
+- Bots run for every account from one engine tick every minute. On Supabase
+  this is automatic: on start-up the production deployment registers a
+  pg_cron job (`binarytrades-engine-tick`) that calls `/api/cron/tick` through
+  pg_net, using `CRON_SECRET` and `APP_URL`. Check it at
+  `/api/cron/health?key=CRON_SECRET` (`engine_schedule`). Set
+  `ENGINE_SCHEDULER=0` to turn it off, or use any external scheduler instead.
 
 ## Connecting your accounts
 

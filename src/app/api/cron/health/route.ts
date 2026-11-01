@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 
 import { jsonError } from "@/lib/http";
+import { engineScheduleStatus } from "@/lib/trading/scheduler";
 import { getStore } from "@/lib/trading/store";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,7 @@ export async function GET(request: Request) {
       report.database = await sql`
         select relname as table, n_live_tup as rows, n_tup_ins as inserted, n_tup_del as deleted
         from pg_stat_user_tables where schemaname = 'public' order by relname`;
+      report.engine_schedule = await engineScheduleStatus(sql).catch((e: Error) => ({ error: e.message }));
       // Supabase project ref of each connection, to confirm both point at the same database.
       const u = new URL(dbUrl);
       report.database_project = u.username.split(".")[1] ?? u.hostname.split(".")[1] ?? null;

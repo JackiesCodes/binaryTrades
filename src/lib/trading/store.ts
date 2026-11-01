@@ -6,6 +6,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import postgres from "postgres";
 
 import { APPLIED_CHECKS, MIGRATIONS } from "@/lib/trading/schema";
+import { ensureEngineSchedule } from "@/lib/trading/scheduler";
 
 import type {
   AuthToken,
@@ -231,6 +232,13 @@ function ensureSchema(): Promise<void> {
         // Make the Supabase REST API see the changes immediately, then give it a moment.
         await sql`notify pgrst, 'reload schema'`;
         await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      // Keep the every-minute engine job registered (production only); never block the app on it.
+      try {
+        const result = await ensureEngineSchedule(sql);
+        if (result === "registered") console.info("[binaryTrades] engine schedule registered (every minute)");
+      } catch (error) {
+        console.error("[binaryTrades] could not register the engine schedule", error);
       }
     } finally {
       await sql.end({ timeout: 5 });
