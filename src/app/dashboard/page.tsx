@@ -43,6 +43,9 @@ export default function OverviewPage() {
   }
   const dayLoss = Math.max(0, -k.today_pnl);
   const connected = accounts.filter((b) => b.status === "connected").length;
+  // Equity = cash balance + current value of open trades (your broker's own "balance" excludes open trades).
+  const balance = accounts.reduce((sum, b) => sum + b.balance, 0);
+  const inTrades = accounts.reduce((sum, b) => sum + b.equity, 0) - balance;
 
   return (
     <div className="space-y-5">
@@ -93,7 +96,11 @@ export default function OverviewPage() {
               className="col-span-2 lg:col-span-1"
               label={view === "real" ? "Total equity" : "Demo equity"}
               value={money(k.equity)}
-              sub={`${connected} of ${accounts.length} account${accounts.length === 1 ? "" : "s"} connected`}
+              sub={
+                inTrades > 0.005
+                  ? `Balance ${money(balance)} + ${money(inTrades)} in open trades`
+                  : `Balance ${money(balance)} · ${connected} of ${accounts.length} account${accounts.length === 1 ? "" : "s"}`
+              }
             />
             <Kpi label="Today P&L" value={money(k.today_pnl, "USD", true)} tone={pnlClass(k.today_pnl)} sub="Since 00:00 UTC" />
             <Kpi label="Open positions" value={String(k.open_positions)} sub={`Limit ${settings.max_open_trades}`} />

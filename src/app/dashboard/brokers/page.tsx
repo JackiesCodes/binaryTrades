@@ -83,7 +83,8 @@ function BrokerRow({ broker }: { broker: PublicBroker }) {
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
           {broker.login ? `Login ${broker.login}${broker.server ? ` · ${broker.server}` : ""} · ` : ""}
-          Balance {money(broker.balance, broker.currency)} · Equity {money(broker.equity, broker.currency)} · synced <LastSeen iso={broker.last_sync_at} />
+          Balance {money(broker.balance, broker.currency)} · Equity (balance + open trades) {money(broker.equity, broker.currency)} · synced{" "}
+          <LastSeen iso={broker.last_sync_at} />
         </div>
         {broker.error && <div className="mt-1 text-xs text-amber-300">{broker.error}</div>}
       </div>
