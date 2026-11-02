@@ -187,7 +187,7 @@ export interface DerivOpenContract {
 function toOpenContract(poc: Json): DerivOpenContract {
   return {
     contract_id: String(poc.contract_id),
-    symbol: String(poc.underlying ?? ""),
+    symbol: String(poc.underlying_symbol ?? poc.underlying ?? ""),
     side: poc.contract_type === "MULTDOWN" ? "sell" : "buy",
     stake: Number(poc.buy_price ?? 0),
     profit: Number(poc.profit ?? 0),
@@ -264,7 +264,8 @@ export async function derivOpen(
         contract_type: order.side === "buy" ? "MULTUP" : "MULTDOWN",
         currency: order.currency,
         multiplier: order.multiplier,
-        symbol: order.symbol,
+        // Deriv's current API names the market "underlying_symbol" ("symbol" is rejected).
+        underlying_symbol: order.symbol,
         ...(Object.keys(limit_order).length ? { limit_order } : {}),
       },
     });
