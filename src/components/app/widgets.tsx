@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy } from "lucide-react";
+import { Copy, LineChart } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -233,7 +233,16 @@ export function BrokerStatusBadge({ broker }: { broker: PublicBroker }) {
   return <Badge variant="loss">● Error</Badge>;
 }
 
-export function PositionsTable({ trades, showBook = false }: { trades: Trade[]; showBook?: boolean }) {
+export function PositionsTable({
+  trades,
+  showBook = false,
+  onSelect,
+}: {
+  trades: Trade[];
+  showBook?: boolean;
+  /** Called with a trade when its chart button is pressed. */
+  onSelect?: (trade: Trade) => void;
+}) {
   const { state, refresh } = useDashboard();
   const { confirm, toast } = useFeedback();
   const [closing, setClosing] = useState<string | null>(null);
@@ -324,15 +333,16 @@ export function PositionsTable({ trades, showBook = false }: { trades: Trade[]; 
                 </div>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3 w-full"
-              onClick={() => close(t)}
-              disabled={closing === t.id || Boolean(t.close_reason)}
-            >
-              {t.close_reason ? "Closing…" : "Close position"}
-            </Button>
+            <div className={cn("mt-3 grid gap-2", onSelect ? "grid-cols-2" : "grid-cols-1")}>
+              {onSelect && (
+                <Button variant="ghost" size="sm" onClick={() => onSelect(t)}>
+                  <LineChart /> Chart
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => close(t)} disabled={closing === t.id || Boolean(t.close_reason)}>
+                {t.close_reason ? "Closing…" : "Close position"}
+              </Button>
+            </div>
           </li>
         ))}
       </ul>
@@ -374,7 +384,12 @@ export function PositionsTable({ trades, showBook = false }: { trades: Trade[]; 
                   {showBook && <TradeKindBadge trade={t} className="ml-2" />}
                 </td>
                 <td className={cn("px-2 py-2.5 text-right font-mono", pnlClass(t.pnl))}>{money(t.pnl, broker?.currency, true)}</td>
-                <td className="px-2 py-2.5 text-right">
+                <td className="whitespace-nowrap px-2 py-2.5 text-right">
+                  {onSelect && (
+                    <Button variant="ghost" size="sm" onClick={() => onSelect(t)} aria-label="Chart">
+                      <LineChart />
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={() => close(t)} disabled={closing === t.id || Boolean(t.close_reason)}>
                     {t.close_reason ? "Closing…" : "Close"}
                   </Button>

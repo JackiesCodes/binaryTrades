@@ -1,10 +1,15 @@
 "use client";
 
+import { useState } from "react";
+import { LineChart } from "lucide-react";
+
 import { useDashboard } from "@/components/app/dashboard-context";
+import { TradeDialog } from "@/components/app/trade-chart";
 import { EmptyState, PageHeader, PageSkeleton, Panel, PositionsTable, TradeKindBadge } from "@/components/app/widgets";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { money, pnlClass, price } from "@/lib/client";
+import type { Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
 function when(iso: string | null) {
@@ -13,12 +18,14 @@ function when(iso: string | null) {
 
 export default function TradesPage() {
   const { state } = useDashboard();
+  const [selected, setSelected] = useState<Trade | null>(null);
   if (!state) return <PageSkeleton />;
   const bots = new Map(state.bots.map((b) => [b.id, b.name]));
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Trades" description="Every position, fill and signal across your connected accounts." />
+      <PageHeader title="Trades" description="Every position, fill and signal across your connected accounts. Tap a trade to see it on the chart." />
+      <TradeDialog trade={selected} botName={selected?.bot_id ? bots.get(selected.bot_id) : undefined} onClose={() => setSelected(null)} />
       <Tabs defaultValue="open">
         <TabsList className="grid w-full grid-cols-3 sm:inline-flex sm:w-auto">
           <TabsTrigger value="open">Open ({state.open_trades.length})</TabsTrigger>
@@ -28,7 +35,7 @@ export default function TradesPage() {
 
         <TabsContent value="open">
           <Panel>
-            <PositionsTable trades={state.open_trades} showBook />
+            <PositionsTable trades={state.open_trades} showBook onSelect={setSelected} />
           </Panel>
         </TabsContent>
 
@@ -38,7 +45,11 @@ export default function TradesPage() {
               <>
                 <ul className="divide-y divide-white/5 md:hidden">
                   {state.closed_trades.map((t) => (
-                    <li key={t.id} className="flex items-start justify-between gap-3 py-3">
+                    <li
+                      key={t.id}
+                      className="flex cursor-pointer items-start justify-between gap-3 py-3"
+                      onClick={() => t.status !== "rejected" && setSelected(t)}
+                    >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{t.symbol}</span>
@@ -78,11 +89,16 @@ export default function TradesPage() {
                         <th className="px-2 py-2 font-medium">Bot</th>
                         <th className="px-2 py-2 font-medium">Reason</th>
                         <th className="px-2 py-2 text-right font-medium">P&amp;L</th>
+                        <th className="px-2 py-2" />
                       </tr>
                     </thead>
                     <tbody>
                       {state.closed_trades.map((t) => (
-                        <tr key={t.id} className="border-t border-white/5">
+                        <tr
+                          key={t.id}
+                          className={cn("border-t border-white/5", t.status !== "rejected" && "cursor-pointer hover:bg-white/[0.03]")}
+                          onClick={() => t.status !== "rejected" && setSelected(t)}
+                        >
                           <td className="px-2 py-2 text-muted-foreground">{when(t.closed_at)}</td>
                           <td className="px-2 py-2 font-semibold">
                             {t.symbol}{" "}
@@ -101,6 +117,7 @@ export default function TradesPage() {
                           <td className={cn("px-2 py-2 text-right font-mono", pnlClass(t.pnl))}>
                             {t.status === "rejected" ? "—" : money(t.pnl, "USD", true)}
                           </td>
+                          <td className="px-2 py-2 text-right text-muted-foreground">{t.status !== "rejected" && <LineChart className="inline h-4 w-4" />}</td>
                         </tr>
                       ))}
                     </tbody>

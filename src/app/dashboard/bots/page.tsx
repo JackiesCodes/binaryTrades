@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Pause, Play, Plus, Trash2 } from "lucide-react";
+import { LineChart, Pause, Play, Plus, Trash2 } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
+import { TradeChart } from "@/components/app/trade-chart";
 import { useFeedback } from "@/components/app/feedback";
 import { AccountKindBadge, BotStatusBadge, CopyRow, EmptyState, Field, PageHeader, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
 import { Badge } from "@/components/ui/badge";
@@ -330,6 +331,7 @@ function BotCard({ bot, brokers }: { bot: Bot; brokers: PublicBroker[] }) {
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
   const [showWebhook, setShowWebhook] = useState(false);
+  const [showChart, setShowChart] = useState(false);
   const broker = brokers.find((b) => b.id === bot.broker_account_id);
   const trades = [...(state?.open_trades ?? []), ...(state?.closed_trades ?? [])].filter((t) => t.bot_id === bot.id && t.status !== "rejected");
   const pnl = trades.reduce((s, t) => s + t.pnl, 0);
@@ -440,6 +442,9 @@ function BotCard({ bot, brokers }: { bot: Bot; brokers: PublicBroker[] }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1">
+        <Button size="sm" variant="ghost" onClick={() => setShowChart((v) => !v)}>
+          <LineChart /> {showChart ? "Hide chart" : "Chart"}
+        </Button>
         {bot.strategy?.id === "script" && (
           <Button size="sm" variant="ghost" asChild>
             <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit script</Link>
@@ -488,6 +493,7 @@ function BotCard({ bot, brokers }: { bot: Bot; brokers: PublicBroker[] }) {
         <span>Last signal {timeAgo(bot.last_signal_at)}</span>
       </div>
 
+      {showChart && <BotChart bot={bot} trades={trades} />}
       {showWebhook && <WebhookSetup bot={bot} />}
     </Panel>
   );
@@ -539,6 +545,18 @@ function WebhookSetup({ bot }: { bot: Bot }) {
       <CopyRow label="Webhook URL" value={url} />
       <CopyRow label="Alert message" value={message} />
       <p className="text-xs text-muted-foreground">Keep the passphrase private — anyone with it can send signals to this bot.</p>
+    </div>
+  );
+}
+
+/** The bot's market on its own timeframe, with its trades marked. */
+function BotChart({ bot, trades }: { bot: Bot; trades: import("@/lib/trading/types").Trade[] }) {
+  const [now] = useState(() => Math.floor(Date.now() / 1000));
+  const from = now - bot.timeframe * 120;
+  const shown = trades.filter((t) => Date.parse(t.opened_at) / 1000 >= from);
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-2">
+      <TradeChart symbol={bot.data_symbol} from={from} to={now} timeframe={bot.timeframe} trades={shown} height={280} />
     </div>
   );
 }

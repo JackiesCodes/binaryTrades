@@ -265,11 +265,12 @@ export async function closeTrade(trade: Trade, reason: string): Promise<Trade> {
 
   if (broker.kind === "deriv") {
     const res = await deps.derivClose(derivCredentials(broker), trade.broker_ref!);
-    const pnl = res.sold_for - trade.size;
+    const pnl = res.profit ?? res.sold_for - trade.size;
     const closed = await store.trades.update(trade.id, {
       status: "closed",
       pnl,
-      close_reason: reason,
+      exit_price: res.exit_spot ?? trade.current_price,
+      close_reason: res.commission ? `${reason} · incl. Deriv commission ${res.commission.toFixed(2)}` : reason,
       closed_at: nowIso(),
     });
     await log("trade", `DERIV close ${trade.symbol} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} (${reason})`, {
@@ -453,7 +454,14 @@ export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
           current_price: c.current_spot,
           entry_price: trade.entry_price ?? c.entry_spot,
           ...(c.is_sold
-            ? { status: "closed" as const, exit_price: c.exit_spot, closed_at: nowIso(), close_reason: trade.close_reason ?? "Closed on Deriv (stop/target)" }
+            ? {
+                status: "closed" as const,
+                exit_price: c.exit_spot,
+                closed_at: nowIso(),
+                close_reason:
+                  trade.close_reason ??
+                  `Closed on Deriv (stop/target)${c.commission ? ` · incl. Deriv commission ${c.commission.toFixed(2)}` : ""}`,
+              }
             : {}),
         });
       } else if (!c.is_sold) {

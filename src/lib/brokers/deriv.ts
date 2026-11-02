@@ -182,6 +182,8 @@ export interface DerivOpenContract {
   is_sold: boolean;
   sell_price: number | null;
   exit_spot: number | null;
+  /** Deriv's commission on the contract, already included in profit. */
+  commission: number | null;
 }
 
 function toOpenContract(poc: Json): DerivOpenContract {
@@ -195,7 +197,8 @@ function toOpenContract(poc: Json): DerivOpenContract {
     current_spot: poc.current_spot != null ? Number(poc.current_spot) : null,
     is_sold: Boolean(poc.is_sold),
     sell_price: poc.sell_price != null ? Number(poc.sell_price) : null,
-    exit_spot: poc.exit_tick != null ? Number(poc.exit_tick) : null,
+    exit_spot: poc.exit_tick != null ? Number(poc.exit_tick) : poc.exit_spot != null ? Number(poc.exit_spot) : null,
+    commission: poc.commission != null ? Number(poc.commission) : null,
   };
 }
 
@@ -284,10 +287,51 @@ export async function derivOpen(
   });
 }
 
-export async function derivClose(cred: DerivCredentials, contractId: string): Promise<{ sold_for: number }> {
+export interface DerivCloseResult {
+  sold_for: number;
+  /** Final profit/loss from Deriv (commission included), when the contract could be read back. */
+  profit: number | null;
+  exit_spot: number | null;
+  commission: number | null;
+}
+
+export async function derivClose(cred: DerivCredentials, contractId: string): Promise<DerivCloseResult> {
   return withDeriv(cred, async (s) => {
     const res = await s.send<{ sell: { sold_for: number } }>({ sell: Number(contractId), price: 0 });
-    return { sold_for: Number(res.sell.sold_for) };
+    const result: DerivCloseResult = { sold_for: Number(res.sell.sold_for), profit: null, exit_spot: null, commission: null };
+    try {
+      // Read the closed contract back for the exit price and Deriv's own profit figure.
+      const poc = toOpenContract(
+        (await s.send<{ proposal_open_contract: Json }>({ proposal_open_contract: 1, contract_id: Number(contractId) })).proposal_open_contract,
+      );
+      result.profit = poc.is_sold ? poc.profit : null;
+      result.exit_spot = poc.exit_spot ?? poc.current_spot;
+      result.commission = poc.commission;
+    } catch {
+      // The sale went through; the next sync fills in the details.
+    }
+    return result;
+  });
+}
+
+/** Candles between two times (for charts of past trades). */
+export async function derivCandlesBetween(symbol: string, granularity: number, start: number, end: number): Promise<Candle[]> {
+  return withDeriv(null, async (s) => {
+    const res = await s.send<{ candles?: Json[] }>({
+      ticks_history: symbol,
+      start: Math.floor(start),
+      end: Math.floor(end),
+      style: "candles",
+      granularity,
+      count: 1000,
+    });
+    return (res.candles ?? []).map((c) => ({
+      epoch: Number(c.epoch),
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+    }));
   });
 }
 

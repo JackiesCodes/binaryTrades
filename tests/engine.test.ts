@@ -32,7 +32,7 @@ deps.derivOpen = async (_cred, order) => {
 deps.derivClose = async (_token, id) => {
   const c = contracts.find((x) => x.id === id)!;
   c.sold = true;
-  return { sold_for: c.stake + 5 };
+  return { sold_for: c.stake + 5, profit: 5, exit_spot: price, commission: 0.4 };
 };
 deps.derivSnapshot = async (cred) => ({
   balance: derivEquity[cred.token] ?? 0,
@@ -105,6 +105,9 @@ describe("trading engine", () => {
     expect(s2.status).toBe("accepted");
     const closed = await getStore().trades.all({ eq: { status: "closed" } });
     expect(closed[0]!.pnl).toBeCloseTo(5);
+    // Closed trades record the real exit price and Deriv's commission.
+    expect(closed[0]!.exit_price).toBeCloseTo(1.1);
+    expect(closed[0]!.close_reason).toContain("Deriv commission 0.40");
     expect((await activeTrades(U, { bot_id: bot.id }))[0]!.side).toBe("sell");
   });
 
