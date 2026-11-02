@@ -29,5 +29,13 @@ export interface StrategyDefinition {
    * Optional stop / target prices for trades the strategy opens on bar i (scripts can set
    * them). Missing or invalid values fall back to the ATR stop and reward:risk target.
    */
-  levels?(candles: Candle[], params: Record<string, number>): Map<number, { stop: number | null; target: number | null }>;
+  levels?(candles: Candle[], params: Record<string, number>): Map<number, TradeLevels>;
+}
+
+/** What a strategy asked for on a bar that opens a trade. */
+export interface TradeLevels {
+  stop: number | null;
+  target: number | null;
+  /** Close the current trade and open a fresh one on this bar, even in the same direction. */
+  restart?: boolean;
 }

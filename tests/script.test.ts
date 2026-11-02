@@ -62,7 +62,7 @@ describe("script bots", () => {
     }`;
     const run = runScript(qjs, code, candles.slice(0, 10), {});
     expect(Array.from(run.positions)).toEqual([0, 0, 0, 1, 1, 0, 0, 0, 0, 0]);
-    expect(run.levels.get(3)).toEqual({ stop: 900, target: 1200 });
+    expect(run.levels.get(3)).toMatchObject({ stop: 900, target: 1200, restart: false });
     await expect(checkScript(`function onBar(i) { return { action: "buy", stop: -1 }; }`)).rejects.toThrow(/stop must be a price/);
   });
 
@@ -82,5 +82,18 @@ describe("script bots", () => {
     const no = await runScriptAlert(code, candles, {}, ctx, { action: "buy", rsi: 70 });
     expect(no.action).toBeNull();
     await expect(runScriptAlert(`function onBar(i) {}`, candles, {}, ctx, {})).rejects.toThrow(/no onAlert/);
+  });
+
+  it("restarts a trade every bar for timed strategies, in backtests too", async () => {
+    const code = `function onBar(i) { return { action: "buy", restart: true }; }`;
+    const qjs = await loadScriptEngine();
+    const run = runScript(qjs, code, candles.slice(0, 6), {});
+    expect(Array.from(run.positions)).toEqual([1, 1, 1, 1, 1, 1]);
+    expect([...run.levels.values()].every((l) => l.restart)).toBe(true);
+    const def = await scriptStrategy(code);
+    const result = runBacktest(candles.slice(0, 66), def, { atr_mult: 50, rr: 0 }, { initialBalance: 10_000, riskPercent: 1, costPercent: 0, timeframe: 300 });
+    // One trade per bar once ATR(14) exists (bars 16–65), each closed at the next bar's open.
+    expect(result.trades.length).toBeGreaterThanOrEqual(48);
+    expect(result.trades.filter((t) => t.reason !== "end").every((t) => t.exit_epoch - t.entry_epoch === 3600)).toBe(true);
   });
 });

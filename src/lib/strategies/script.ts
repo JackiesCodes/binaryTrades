@@ -3,7 +3,7 @@ import "server-only";
 import { getQuickJS, shouldInterruptAfterDeadline, type QuickJSContext, type QuickJSWASMModule } from "quickjs-emscripten";
 
 import { looksLikePine } from "@/lib/strategies/script-templates";
-import type { Candle, StrategyDefinition } from "@/lib/strategies/types";
+import type { Candle, StrategyDefinition, TradeLevels } from "@/lib/strategies/types";
 
 export { looksLikePine };
 
@@ -231,9 +231,10 @@ const RUNNER = String.raw`
     });
     const d = __decide(onBar(i), "onBar(" + i + ")");
     const next = d.action === undefined ? pos : d.action;
-    if (next !== 0 && next !== pos) {
+    // restart: close the current trade and open a fresh one now, even in the same direction.
+    if (next !== 0 && (next !== pos || d.restart)) {
       position = { side: null, entryIndex: i, entryPrice: close[i], barsHeld: 0 };
-      if (d.stop !== undefined || d.target !== undefined) levels[i] = [d.stop ?? null, d.target ?? null];
+      if (d.stop !== undefined || d.target !== undefined || d.restart) levels[i] = [d.stop ?? null, d.target ?? null, d.restart ? 1 : 0];
     }
     pos = next;
     out += pos === -1 ? "2" : String(pos);
@@ -246,11 +247,12 @@ const RUNNER = String.raw`
 const DECIDE = String.raw`
 function __decide(r, where) {
   if (r === undefined || r === null || r === "hold") return {};
-  let action = r, stop, target;
+  let action = r, stop, target, restart = false;
   if (typeof r === "object") {
     action = r.action;
     stop = r.stop;
     target = r.target;
+    restart = r.restart === true;
     for (const [k, v] of [["stop", stop], ["target", target]]) {
       if (v !== undefined && v !== null && !(typeof v === "number" && isFinite(v) && v > 0)) throw new Error(where + ": " + k + " must be a price above 0");
     }
@@ -260,7 +262,7 @@ function __decide(r, where) {
   if (a !== 1 && a !== -1 && a !== 0) {
     throw new Error(where + " returned " + JSON.stringify(r) + ' — return "buy", "sell", "close", nothing to hold, or { action, stop, target }');
   }
-  return { action: a, stop: stop ?? undefined, target: target ?? undefined };
+  return { action: a, stop: stop ?? undefined, target: target ?? undefined, restart: restart && a !== 0 };
 }
 `;
 
@@ -291,7 +293,7 @@ const BACKTEST_CONTEXT: ScriptContext = {
 export interface ScriptRun {
   positions: Int8Array;
   /** Stop / target prices the script set for trades opened on a given bar index. */
-  levels: Map<number, { stop: number | null; target: number | null }>;
+  levels: Map<number, TradeLevels>;
   /** Inputs the script declared with input(name, default), with their defaults. */
   inputs: Record<string, number>;
   logs: string[];
@@ -376,7 +378,7 @@ export function runScript(
 ): ScriptRun {
   const out = JSON.parse(inSandbox(qjs, code, candles, params, context, RUNNER)) as {
     p: string;
-    levels: Record<string, [number | null, number | null]>;
+    levels: Record<string, [number | null, number | null, number?]>;
     inputs: Record<string, number>;
     logs: string[];
     alert: boolean;
@@ -384,7 +386,9 @@ export function runScript(
   };
   const positions = new Int8Array(out.p.length);
   for (let i = 0; i < out.p.length; i++) positions[i] = out.p[i] === "1" ? 1 : out.p[i] === "2" ? -1 : 0;
-  const levels = new Map(Object.entries(out.levels).map(([i, [stop, target]]) => [Number(i), { stop, target }]));
+  const levels = new Map(
+    Object.entries(out.levels).map(([i, [stop, target, restart]]) => [Number(i), { stop, target, restart: restart === 1 }]),
+  );
   return { positions, levels, inputs: out.inputs, logs: out.logs, hasOnAlert: out.alert, hasOnBar: out.bar };
 }
 

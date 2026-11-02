@@ -555,22 +555,25 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
   }
   const want = positions[positions.length - 1];
   const prev = positions[positions.length - 2];
+  // A script can ask to close the current trade and open a fresh one on this bar.
+  const restart = want !== 0 && Boolean(levels?.get(candles.length - 1)?.restart);
   // Scripts that also handle TradingView alerts act on bars only when onBar changes its mind,
   // so a position opened by an alert isn't closed just because onBar is flat.
   if (script) {
     const run = script.run(candles, params);
     if (!run.hasOnBar) return "alerts only";
-    if (run.hasOnAlert && want === prev) return "hold";
+    if (run.hasOnAlert && want === prev && !restart) return "hold";
   }
   const open = await activeTrades(bot.user_id, { bot_id: bot.id });
   const current = open[0];
-  const currentDir = current ? (current.side === "buy" ? 1 : -1) : 0;
+  let currentDir = current ? (current.side === "buy" ? 1 : -1) : 0;
 
-  if (current && want !== currentDir) {
+  if (current && (want !== currentDir || restart)) {
     await processSignal({ bot, source: "builtin", action: "close" });
     if (want === 0) return "closed";
+    currentDir = (await activeTrades(bot.user_id, { bot_id: bot.id })).length ? currentDir : 0;
   }
-  if (want !== 0 && want !== prev && want !== currentDir) {
+  if (want !== 0 && (want !== prev || restart) && want !== currentDir) {
     const atr = atrSeries(candles).at(-1)!;
     // The script's own stop / target, when it set them on the correct side of the price.
     const own = resolveLevels(want as 1 | -1, last.close, levels?.get(candles.length - 1));

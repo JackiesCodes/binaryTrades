@@ -265,6 +265,29 @@ describe("MT5 bridge", () => {
     expect(cmd!.payload).toMatchObject({ symbol: "EURUSDm", side: "buy" });
   });
 
+  it("closes and reopens a timed script's trade on every new bar", async () => {
+    const demo = await derivAccount("timed-token", true, 1000);
+    const bot = makeBot({
+      broker_account_id: demo.id,
+      symbol: "BOOM1000",
+      data_symbol: "BOOM1000",
+      source: "builtin",
+      timeframe: 300,
+      strategy: { id: "script", params: { atr_mult: 2, rr: 0 }, code: `function onBar(i) { return { action: "buy", restart: true }; }` },
+    });
+    await getStore().bots.insert(bot);
+    expect(await runBuiltinBot(bot)).toBe("buy");
+    const [first] = await activeTrades(U, { bot_id: bot.id });
+    // Next bar: the engine sees a new last bar and restarts the trade.
+    const fresh = (await getStore().bots.get(bot.id))!;
+    await getStore().bots.update(bot.id, { last_bar_epoch: (fresh.last_bar_epoch ?? 0) - 300 });
+    expect(await runBuiltinBot((await getStore().bots.get(bot.id))!)).toBe("buy");
+    const open = await activeTrades(U, { bot_id: bot.id });
+    expect(open).toHaveLength(1);
+    expect(open[0]!.id).not.toBe(first!.id);
+    expect((await getStore().trades.get(first!.id))!.status).toBe("closed");
+  });
+
   it("tracks positions from other EAs as external trades", async () => {
     const account = await mt5Account({ is_demo: false });
     await ingestMt5Report(account, {

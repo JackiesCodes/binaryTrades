@@ -101,10 +101,11 @@ export function runBacktest(
   for (let i = from; i < to; i++) {
     const bar = candles[i]!;
     const want = desired[i - 1]!;
+    const restart = want !== 0 && Boolean(levels?.get(i - 1)?.restart);
 
-    if (pos && want !== pos.dir) close(bar.open, bar.epoch, "signal");
+    if (pos && (want !== pos.dir || restart)) close(bar.open, bar.epoch, "signal");
 
-    if (!pos && want !== 0 && want !== desired[i - 2]!) {
+    if (!pos && want !== 0 && (want !== desired[i - 2]! || restart)) {
       const dir = want as 1 | -1;
       const own = resolveLevels(dir, bar.open, levels?.get(i - 1));
       const stopDist = own.stop !== null ? Math.abs(bar.open - own.stop) : atr[i - 1]! * atrMult;

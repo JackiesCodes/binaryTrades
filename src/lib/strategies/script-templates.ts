@@ -111,6 +111,21 @@ function onBar(i) {
 `,
   },
   {
+    id: "timed_trade",
+    name: "Trade every candle (timed)",
+    description: "Opens a trade at every candle close and closes it one candle later — e.g. every 5 minutes on M5.",
+    code: `// Opens a trade at every candle close and closes it at the next one.
+// On the M5 timeframe: a new trade every 5 minutes, each held for 5 minutes.
+// direction: 1 = buy, -1 = sell. Set "Reward : risk" to 0 so trades close on time, not on a target.
+const direction = input("direction", 1);
+
+function onBar(i) {
+  // restart: true closes the previous trade and opens a fresh one on this candle.
+  return { action: direction > 0 ? "buy" : "sell", restart: true };
+}
+`,
+  },
+  {
     id: "blank",
     name: "Blank script",
     description: "Start from scratch.",
@@ -136,6 +151,7 @@ export const SCRIPT_REFERENCE: Array<{ name: string; detail: string }> = [
   { name: "crossover crossunder (a, b, i)", detail: "a crossed above / below b on bar i. b can be a series or a number." },
   { name: '{ action: "buy", stop, target }', detail: "Return this instead of \"buy\" to set your own stop-loss and take-profit prices for the trade." },
   { name: "onAlert(alert, i)", detail: "Optional. Runs for each TradingView alert sent to the bot; alert holds every field of the alert JSON. Return like onBar." },
+  { name: '{ action, restart: true }', detail: "Close the current trade and open a fresh one now, even in the same direction (timed strategies)." },
   { name: "position", detail: "{ side: \"long\" | \"short\" | null, entryIndex, entryPrice, barsHeld } — the script's own position." },
   { name: "account", detail: "{ broker, balance, equity, currency, is_demo } of the bot's account (a $10,000 demo in tests)." },
   { name: "brokerPosition, live", detail: "Live only: this bot's open trade at the broker ({ side, entry, size, pnl }) or null; live is false in tests." },
