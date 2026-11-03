@@ -7,10 +7,12 @@ import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, Tr
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
-import { AccountKindBadge, AreaChart, BotStatusBadge, EmptyState, Field, MetricsGrid, PageHeader, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
+import { EquityChart } from "@/components/app/equity-chart";
+import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
+import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, money, pnlClass, price } from "@/lib/client";
+import { api, money, pct, pnlClass, price } from "@/lib/client";
 import type { BacktestResult } from "@/lib/strategies/backtest";
 import { SCRIPT_REFERENCE, SCRIPT_TEMPLATES, looksLikePine } from "@/lib/strategies/script-templates";
 import { DATA_SYMBOLS, TIMEFRAMES, timeframeLabel } from "@/lib/trading/symbols";
@@ -39,7 +41,6 @@ export default function ScriptsPage() {
 function ScriptStudio() {
   const { state, refresh } = useDashboard();
   const { toast } = useFeedback();
-  const router = useRouter();
   const search = useSearchParams();
   const editingId = search.get("bot");
   const editing = state?.bots.find((b) => b.id === editingId && b.strategy?.id === "script");
@@ -57,6 +58,7 @@ function ScriptStudio() {
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [test, setTest] = useState<TestResult | null>(null);
   const loadedFor = useRef<string | null>(null);
+  const [tab, setTab] = useState<"test" | "deploy">("test");
 
   // Load the bot being edited once its data arrives.
   useEffect(() => {
@@ -151,162 +153,200 @@ function ScriptStudio() {
 
   if (!state) return <PageSkeleton />;
 
+  const disabled = busy !== null || isPine || !code.trim();
+  const template = SCRIPT_TEMPLATES.find((t) => t.code === code);
+  const marketLabel = DATA_SYMBOLS.find((d) => d.value === dataSymbol)?.label ?? dataSymbol;
+
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title={editing ? `Edit script · ${editing.name}` : "Scripts"}
-        description={
-          editing
-            ? "Change the code or its settings, test it, then save. The bot keeps running and uses the new script from the next candle."
-            : "Write or paste a JavaScript strategy, test it on real price history, then turn it into a bot that trades on its own."
-        }
-        action={
-          editing ? (
-            <Button variant="outline" onClick={() => router.push("/dashboard/scripts")} className="w-full sm:w-auto">
-              New script
-            </Button>
-          ) : undefined
-        }
-      />
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-w-0 space-y-5">
-          <Panel
-            title={
-              <span className="flex items-center gap-2">
-                <Code2 className="h-4 w-4" /> Script
-              </span>
-            }
-            action={
-              <div className="flex items-center gap-1">
-                <Button size="sm" variant="ghost" onClick={paste} aria-label="Paste from clipboard">
-                  <ClipboardPaste /> <span className="hidden sm:inline">Paste</span>
-                </Button>
-                <Button size="sm" variant="ghost" asChild>
-                  <label className="cursor-pointer" aria-label="Open a file">
-                    <FileUp /> <span className="hidden sm:inline">Open file</span>
-                    <input type="file" accept=".js,.txt,.mjs,text/plain,text/javascript" className="sr-only" onChange={(e) => loadFile(e.target.files?.[0])} />
-                  </label>
-                </Button>
-              </div>
-            }
-          >
-            {!editing && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {SCRIPT_TEMPLATES.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => loadTemplate(t.id)}
-                    title={t.description}
-                    className={cn(
-                      "rounded-full border px-3 py-1 text-xs transition-colors",
-                      code === t.code ? "border-profit/50 bg-profit/10 text-profit" : "border-white/10 text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            )}
-            <CodeEditor value={code} onChange={setCode} errorLine={lineOf(error)} />
-            {isPine && (
-              <div className="mt-3 flex gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-3 text-xs leading-relaxed text-amber-200">
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  This looks like TradingView <b>Pine Script</b>. Pine only runs inside TradingView. To trade it from here, create a{" "}
-                  <Link href="/dashboard/bots?new=1&tv=1" className="underline">
-                    TradingView alerts bot
-                  </Link>{" "}
-                  and point your alert at it, or rewrite the logic in JavaScript (see the examples above).
-                </span>
-              </div>
-            )}
-            {error && (
-              <pre role="alert" className="mt-3 whitespace-pre-wrap rounded-xl bg-loss/10 px-3 py-2 font-mono text-xs text-loss">
-                {error}
-              </pre>
-            )}
-
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="Market">
-                <select className={selectClass} value={dataSymbol} onChange={(e) => setDataSymbol(e.target.value)}>
-                  {DATA_SYMBOLS.map((d) => (
-                    <option key={d.value} value={d.value}>
-                      {d.label}
-                    </option>
+    <Workspace
+      strip={
+        <Strip
+          icon={Code2}
+          title={editing ? `Edit · ${editing.name}` : "Scripts"}
+          sub={editing ? "Saving updates the running bot from its next candle" : "Your own JavaScript strategies"}
+          action={
+            editing ? (
+              <Link href="/dashboard/scripts" className="text-xs text-muted-foreground hover:text-profit">
+                New script
+              </Link>
+            ) : undefined
+          }
+          stats={[
+            { label: "Market", value: marketLabel },
+            { label: "Timeframe", value: timeframeLabel(timeframe) },
+            {
+              label: "Last test",
+              value: test ? pct(test.metrics.return_percent, 1, true) : "—",
+              tone: test ? pnlClass(test.metrics.return_percent) : undefined,
+            },
+            { label: "Trades", value: test ? String(test.metrics.trades) : "—" },
+            { label: "Script bots", value: String(scriptBots.length) },
+          ]}
+        />
+      }
+      aside={
+        <>
+          <Switcher
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "test", label: "Test" },
+              { value: "deploy", label: editing ? "Save" : "Create bot" },
+            ]}
+          />
+          {tab === "test" ? (
+            <>
+              <FieldBox>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Market">
+                    <select className={selectClass} value={dataSymbol} onChange={(e) => setDataSymbol(e.target.value)}>
+                      {DATA_SYMBOLS.map((d) => (
+                        <option key={d.value} value={d.value}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Timeframe">
+                    <select className={selectClass} value={timeframe} onChange={(e) => setTimeframe(Number(e.target.value))}>
+                      {TIMEFRAMES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Stop (× ATR)">
+                    <Input type="number" step="0.1" min="0.1" value={atrMult} onChange={(e) => setAtrMult(Number(e.target.value))} />
+                  </Field>
+                  <Field label="Reward : risk" hint="0 = exit on signal">
+                    <Input type="number" step="0.5" min="0" value={rr} onChange={(e) => setRr(Number(e.target.value))} />
+                  </Field>
+                  {Object.keys(inputs).map((k) => (
+                    <Field key={k} label={k}>
+                      <Input type="number" step="any" value={values[k] ?? inputs[k]} onChange={(e) => setValues({ ...values, [k]: Number(e.target.value) })} />
+                    </Field>
                   ))}
-                </select>
-              </Field>
-              <Field label="Timeframe">
-                <select className={selectClass} value={timeframe} onChange={(e) => setTimeframe(Number(e.target.value))}>
-                  {TIMEFRAMES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Stop (× ATR)">
-                <Input type="number" step="0.1" min="0.1" value={atrMult} onChange={(e) => setAtrMult(Number(e.target.value))} />
-              </Field>
-              <Field label="Reward : risk" hint="0 = exit on signal">
-                <Input type="number" step="0.5" min="0" value={rr} onChange={(e) => setRr(Number(e.target.value))} />
-              </Field>
-              {Object.keys(inputs).map((k) => (
-                <Field key={k} label={k}>
-                  <Input type="number" step="any" value={values[k] ?? inputs[k]} onChange={(e) => setValues({ ...values, [k]: Number(e.target.value) })} />
-                </Field>
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => run("check")} disabled={busy !== null || isPine || !code.trim()}>
-                {busy === "check" ? "Checking…" : "Check script"}
-              </Button>
-              <Button onClick={() => run("test")} disabled={busy !== null || isPine || !code.trim()}>
-                <FlaskConical /> {busy === "test" ? "Testing on history…" : "Test on history"}
-              </Button>
-              {editing && (
-                <Button variant="outline" onClick={saveEdits} disabled={busy !== null || isPine || !code.trim()} className="sm:ml-auto">
-                  <Save /> {busy === "deploy" ? "Saving…" : "Save changes"}
+                </div>
+                {!Object.keys(inputs).length && (
+                  <p className="text-[11px] text-muted-foreground">Settings from your script&apos;s input() calls appear here after a check.</p>
+                )}
+              </FieldBox>
+              <div className="grid grid-cols-[auto_1fr] gap-2">
+                <Button variant="outline" onClick={() => run("check")} disabled={disabled} className="h-12">
+                  {busy === "check" ? "Checking…" : "Check"}
                 </Button>
-              )}
-            </div>
-          </Panel>
-
-          {check && <ScriptOutput check={check} test={test} dataSymbol={dataSymbol} timeframe={timeframe} />}
-          {/function\s+onAlert\s*\(/.test(code) && <AlertTester code={code} params={params} dataSymbol={dataSymbol} timeframe={timeframe} />}
-        </div>
-
-        <div className="min-w-0 space-y-5">
-          {!editing && (
+                <Button onClick={() => run("test")} disabled={disabled} className="h-12 text-[15px] font-bold">
+                  <FlaskConical /> {busy === "test" ? "Testing on history…" : "Test on history"}
+                </Button>
+              </div>
+            </>
+          ) : editing ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Saves the code and its settings to <b className="text-ivory">{editing.name}</b>. The bot keeps running and uses the new script from the next
+                candle.
+              </p>
+              <KV
+                rows={[
+                  ["Market", `${editing.symbol} · ${timeframeLabel(editing.timeframe)}`],
+                  ["Status", editing.status === "running" ? "Running" : "Paused", editing.status === "running" ? "text-profit" : "text-gold"],
+                  ["Stop / target", `${atrMult} × ATR · ${rr} : 1`],
+                ]}
+              />
+              <Button onClick={saveEdits} disabled={disabled} className="h-12 w-full text-[15px] font-bold">
+                <Save /> {busy === "deploy" ? "Saving…" : "Save changes"}
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <Link href={`/dashboard/bots/${editing.id}`}>Open bot</Link>
+              </Button>
+            </>
+          ) : (
             <DeployPanel
               brokers={state.brokers}
               code={code}
               params={params}
               dataSymbol={dataSymbol}
               timeframe={timeframe}
-              disabled={busy !== null || isPine || !code.trim()}
+              disabled={disabled}
               onError={setError}
               onBusy={(b) => setBusy(b ? "deploy" : null)}
               busy={busy === "deploy"}
             />
           )}
+
+          <div className="h-px bg-white/[0.06]" />
+          <AsideTitle>Your script bots</AsideTitle>
+          {scriptBots.length ? (
+            <div className="rounded-[14px] bg-black/25 px-3">
+              {scriptBots.map((b) => (
+                <ScriptBotRow key={b.id} bot={b} broker={state.brokers.find((x) => x.id === b.broker_account_id)} active={b.id === editingId} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No script bots yet.</p>
+          )}
+          <div className="h-px bg-white/[0.06]" />
           <Reference />
-          <Panel title="Your script bots">
-            {scriptBots.length ? (
-              <div className="divide-y divide-white/5">
-                {scriptBots.map((b) => (
-                  <ScriptBotRow key={b.id} bot={b} broker={state.brokers.find((x) => x.id === b.broker_account_id)} active={b.id === editingId} />
-                ))}
-              </div>
-            ) : (
-              <EmptyState>No script bots yet.</EmptyState>
-            )}
-          </Panel>
+        </>
+      }
+    >
+      <Panel>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold text-ivory">
+            <Code2 className="h-4 w-4" /> Script
+          </h2>
+          {!editing && (
+            <select
+              aria-label="Start from a template"
+              className={cn(selectClass, "h-9 w-auto max-w-[15rem] text-sm")}
+              value={template?.id ?? ""}
+              onChange={(e) => loadTemplate(e.target.value)}
+            >
+              <option value="" disabled>
+                Start from a template…
+              </option>
+              {SCRIPT_TEMPLATES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button size="sm" variant="ghost" onClick={paste} aria-label="Paste from clipboard">
+            <ClipboardPaste /> <span className="hidden sm:inline">Paste</span>
+          </Button>
+          <Button size="sm" variant="ghost" asChild>
+            <label className="cursor-pointer" aria-label="Open a file">
+              <FileUp /> <span className="hidden sm:inline">Open file</span>
+              <input type="file" accept=".js,.txt,.mjs,text/plain,text/javascript" className="sr-only" onChange={(e) => loadFile(e.target.files?.[0])} />
+            </label>
+          </Button>
         </div>
-      </div>
-    </div>
+        {template && !editing && <p className="mb-3 text-xs text-muted-foreground">{template.description}</p>}
+        <CodeEditor value={code} onChange={setCode} errorLine={lineOf(error)} />
+        {isPine && (
+          <div className="mt-3 flex gap-2 rounded-xl bg-amber-400/[0.07] p-3 text-xs leading-relaxed text-amber-200">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              This looks like TradingView <b>Pine Script</b>. Pine only runs inside TradingView. To trade it from here, create a{" "}
+              <Link href="/dashboard/bots?new=1&tv=1" className="underline">
+                TradingView alerts bot
+              </Link>{" "}
+              and point your alert at it, or rewrite the logic in JavaScript (start from a template).
+            </span>
+          </div>
+        )}
+        {error && (
+          <pre role="alert" className="mt-3 whitespace-pre-wrap rounded-xl bg-loss/10 px-3 py-2 font-mono text-xs text-loss">
+            {error}
+          </pre>
+        )}
+      </Panel>
+
+      {check && <ScriptOutput check={check} test={test} dataSymbol={dataSymbol} timeframe={timeframe} />}
+      {/function\s+onAlert\s*\(/.test(code) && <AlertTester code={code} params={params} dataSymbol={dataSymbol} timeframe={timeframe} />}
+    </Workspace>
   );
 }
 
@@ -368,8 +408,8 @@ function ScriptOutput({ check, test, dataSymbol, timeframe }: { check: CheckResu
             {new Date(test.range.from * 1000).toLocaleDateString()} → {new Date(test.range.to * 1000).toLocaleDateString()} · {test.range.bars} candles ·
             $10,000 start · costs included
           </div>
+          <EquityChart points={test.equity.map((p) => ({ x: p.epoch * 1000, y: p.equity }))} height={240} />
           <MetricsGrid m={test.metrics} />
-          <AreaChart points={test.equity.map((p) => ({ x: p.epoch, y: p.equity }))} baseline={10000} />
           {test.trades.length ? (
             <div className="scrollbar-thin max-h-64 overflow-auto">
               <table className="w-full min-w-[480px] text-xs">
@@ -409,7 +449,7 @@ function ScriptOutput({ check, test, dataSymbol, timeframe }: { check: CheckResu
       )}
       {check.logs.length > 0 && (
         <div className="mt-4">
-          <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">Output</div>
+          <div className="mb-1 text-xs text-muted-foreground">Output</div>
           <pre className="scrollbar-thin max-h-40 overflow-auto rounded-xl bg-black/30 p-3 font-mono text-xs text-muted-foreground">{check.logs.join("\n")}</pre>
         </div>
       )}
@@ -460,12 +500,12 @@ function DeployPanel({
 
   if (!brokers.length) {
     return (
-      <Panel title="Create a bot">
+      <div className="space-y-3">
         <p className="text-sm text-muted-foreground">Connect a broker account first — every bot trades on one of your accounts.</p>
-        <Button asChild className="mt-3 w-full">
-          <Link href="/dashboard/brokers">Connect a broker account</Link>
+        <Button asChild className="w-full">
+          <Link href="/dashboard/brokers?connect=1">Connect a broker account</Link>
         </Button>
-      </Panel>
+      </div>
     );
   }
 
@@ -513,14 +553,8 @@ function DeployPanel({
   };
 
   return (
-    <Panel
-      title={
-        <span className="flex items-center gap-2">
-          <Rocket className="h-4 w-4" /> Create a bot from this script
-        </span>
-      }
-    >
-      <div className="space-y-3">
+    <div className="space-y-3">
+      <FieldBox>
         <Field label="Bot name">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Vol 75 EMA cross" maxLength={60} />
         </Field>
@@ -573,39 +607,34 @@ function DeployPanel({
             </Field>
           )}
         </div>
+      </FieldBox>
         <p className="text-xs text-muted-foreground">
           Trades {isMt5 ? mt5Symbol || "the MT5 symbol" : DATA_SYMBOLS.find((d) => d.value === dataSymbol)?.label ?? dataSymbol} on{" "}
-          {timeframeLabel(timeframe)} candles. Stops come from your script, or the stop setting on the left. If the script has onAlert, find its
-          TradingView webhook on the bot card after creating it.
+          {timeframeLabel(timeframe)} candles, the market and timeframe from the Test tab. Stops come from your script or the stop setting there.
+          If the script has onAlert, find its TradingView webhook on the bot&apos;s page.
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={startNow} onChange={(e) => setStartNow(e.target.checked)} className="h-4 w-4 accent-[#85BB65]" />
           Start trading right away
         </label>
         {startNow && killOn && <p className="text-xs text-amber-300">The kill switch is on, so the bot will be created paused.</p>}
-        <Button onClick={deploy} disabled={disabled || !brokerId || (isMt5 && !mt5Symbol.trim())} className="w-full">
+        <Button onClick={deploy} disabled={disabled || !brokerId || (isMt5 && !mt5Symbol.trim())} className="h-12 w-full text-[15px] font-bold">
           <Rocket /> {busy ? "Creating…" : startNow ? "Create and start bot" : "Create bot (paused)"}
         </Button>
-      </div>
-    </Panel>
+    </div>
   );
 }
 
 function Reference() {
   const [open, setOpen] = useState(false);
   return (
-    <Panel
-      title={
-        <span className="flex items-center gap-2">
-          <BookOpen className="h-4 w-4" /> How scripts work
-        </span>
-      }
-      action={
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <AsideTitle icon={BookOpen}>How scripts work</AsideTitle>
         <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
           {open ? "Hide" : "Show"}
         </Button>
-      }
-    >
+      </div>
       <p className="text-sm text-muted-foreground">
         Scripts are JavaScript. Define <code className="text-foreground">onBar(i)</code>; it runs once for every closed candle and returns{" "}
         <code className="text-profit">&quot;buy&quot;</code>, <code className="text-loss">&quot;sell&quot;</code>,{" "}
@@ -613,40 +642,36 @@ function Reference() {
         Risk Guard sizes it.
       </p>
       {open && (
-        <dl className="mt-3 space-y-2 text-xs">
+        <dl className="space-y-2 text-xs">
           {SCRIPT_REFERENCE.map((r) => (
             <div key={r.name}>
               <dt className="font-mono text-foreground">{r.name}</dt>
               <dd className="text-muted-foreground">{r.detail}</dd>
             </div>
           ))}
-          <div className="rounded-lg bg-white/[0.03] p-2 text-muted-foreground">
+          <div className="rounded-lg bg-black/25 p-2 text-muted-foreground">
             Scripts run in a locked sandbox: no internet, files or keys, 3 seconds and 64 MB per run.
           </div>
         </dl>
       )}
-    </Panel>
+    </section>
   );
 }
 
 function ScriptBotRow({ bot, broker, active }: { bot: Bot; broker: PublicBroker | undefined; active: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-2 py-2.5">
+    <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] py-2.5 last:border-0">
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{bot.name}</span>
-          <AccountKindBadge broker={broker} />
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {bot.symbol} · {timeframeLabel(bot.timeframe)}
+        <div className="truncate text-sm font-medium text-ivory">{bot.name}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {bot.symbol} · {timeframeLabel(bot.timeframe)} ·{" "}
+          <span className={broker && !broker.is_demo ? "font-semibold text-gold" : undefined}>{broker ? (broker.is_demo ? "Demo" : "Real") : "No account"}</span> ·{" "}
+          <span className={bot.status === "running" ? "text-profit" : "text-gold"}>{bot.status === "running" ? "Running" : "Paused"}</span>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <BotStatusBadge bot={bot} />
-        <Button size="sm" variant={active ? "default" : "outline"} asChild>
-          <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit</Link>
-        </Button>
-      </div>
+      <Button size="sm" variant={active ? "default" : "outline"} asChild>
+        <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit</Link>
+      </Button>
     </div>
   );
 }
