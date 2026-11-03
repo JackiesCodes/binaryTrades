@@ -12,6 +12,7 @@ export const DATA_SYMBOLS = [
   { value: "R_100", label: "Volatility 100 Index", group: "Deriv synthetics" },
   { value: "R_50", label: "Volatility 50 Index", group: "Deriv synthetics" },
   { value: "1HZ100V", label: "Volatility 100 (1s) Index", group: "Deriv synthetics" },
+  { value: "stpRNG", label: "Step Index", group: "Deriv synthetics" },
   { value: "BOOM1000", label: "Boom 1000 Index", group: "Boom & Crash" },
   { value: "BOOM500", label: "Boom 500 Index", group: "Boom & Crash" },
   { value: "BOOM300N", label: "Boom 300 Index", group: "Boom & Crash" },
