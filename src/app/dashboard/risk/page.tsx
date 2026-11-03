@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
+import { KillSwitchPanel } from "@/components/app/kill-switch";
 import { Field, Meter, PageHeader, PageSkeleton, Panel } from "@/components/app/widgets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,8 @@ export default function RiskPage() {
         title="Risk Guard"
         description="Hard limits checked before every order. These protect you from the one thing that ends trading careers: a bad day turning into a blown account."
       />
+
+      <KillSwitchPanel />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {(["real", "demo"] as const)

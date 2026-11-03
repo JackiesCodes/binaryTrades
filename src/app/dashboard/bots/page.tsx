@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LineChart, Pause, Play, Plus, Trash2 } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
+import { KillSwitchButton } from "@/components/app/kill-switch";
 import { TradeChart } from "@/components/app/trade-chart";
 import { useFeedback } from "@/components/app/feedback";
 import { AccountKindBadge, BotStatusBadge, CopyRow, EmptyState, Field, PageHeader, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
@@ -49,9 +50,12 @@ function BotsPageInner() {
         title="Bots"
         description="Built-in bots trade a Strategy Lab strategy or your own script on their own. TradingView bots execute your Pine Script alerts."
         action={
-          <Button onClick={() => setCreating(true)} className="w-full sm:w-auto">
-            <Plus /> New bot
-          </Button>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            {state?.bots.length ? <KillSwitchButton /> : null}
+            <Button onClick={() => setCreating(true)} className={state?.bots.length ? undefined : "col-span-2"}>
+              <Plus /> New bot
+            </Button>
+          </div>
         }
       />
 

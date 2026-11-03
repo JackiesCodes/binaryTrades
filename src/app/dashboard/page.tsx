@@ -190,7 +190,7 @@ export default function OverviewPage() {
                 </ul>
               ) : (
                 <EmptyState>
-                  <Link href="/dashboard/brokers" className="text-profit">
+                  <Link href="/dashboard/brokers?connect=1" className="text-profit">
                     Connect Exness or Deriv →
                   </Link>
                 </EmptyState>

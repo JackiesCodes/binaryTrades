@@ -12,9 +12,7 @@ import {
   LayoutDashboard,
   LogOut,
   MoreHorizontal,
-  Octagon,
   PlugZap,
-  Plus,
   ScrollText,
   ShieldCheck,
   UserRound,
@@ -24,27 +22,61 @@ import {
 import { BrandMark, Wordmark } from "@/components/app/brand";
 import { DashboardProvider, useDashboard } from "@/components/app/dashboard-context";
 import { FeedbackProvider, useFeedback } from "@/components/app/feedback";
+import { useKillSwitch } from "@/components/app/kill-switch";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, timeAgo } from "@/lib/client";
 import { cn } from "@/lib/utils";
 
-const NAV = [
-  { href: "/dashboard", label: "Overview", short: "Home", icon: LayoutDashboard },
-  { href: "/dashboard/bots", label: "Bots", short: "Bots", icon: Bot },
-  { href: "/dashboard/trades", label: "Trades", short: "Trades", icon: CandlestickChart },
-  { href: "/dashboard/strategy-lab", label: "Strategy Lab", short: "Lab", icon: FlaskConical },
-  { href: "/dashboard/scripts", label: "Scripts", short: "Scripts", icon: Code2 },
-  { href: "/dashboard/brokers", label: "Brokers", short: "Brokers", icon: PlugZap },
-  { href: "/dashboard/risk", label: "Risk Guard", short: "Risk", icon: ShieldCheck },
-  { href: "/dashboard/logs", label: "Alerts & Logs", short: "Logs", icon: ScrollText },
-  { href: "/dashboard/account", label: "Account", short: "Account", icon: UserRound },
-];
-const ADMIN_NAV = { href: "/dashboard/admin", label: "Admin", short: "Admin", icon: Users };
+interface NavItem {
+  href: string;
+  label: string;
+  short: string;
+  icon: typeof Bot;
+}
 
-function useNav() {
+// Grouped by what you are doing: trading, building strategies, managing accounts and safety.
+const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+  {
+    label: "Trade",
+    items: [
+      { href: "/dashboard", label: "Overview", short: "Home", icon: LayoutDashboard },
+      { href: "/dashboard/bots", label: "Bots", short: "Bots", icon: Bot },
+      { href: "/dashboard/trades", label: "Trades", short: "Trades", icon: CandlestickChart },
+    ],
+  },
+  {
+    label: "Build",
+    items: [
+      { href: "/dashboard/strategy-lab", label: "Strategy Lab", short: "Lab", icon: FlaskConical },
+      { href: "/dashboard/scripts", label: "Scripts", short: "Scripts", icon: Code2 },
+    ],
+  },
+  {
+    label: "Accounts & safety",
+    items: [
+      { href: "/dashboard/brokers", label: "Brokers", short: "Brokers", icon: PlugZap },
+      { href: "/dashboard/risk", label: "Risk Guard", short: "Risk", icon: ShieldCheck },
+      { href: "/dashboard/logs", label: "Alerts & Logs", short: "Logs", icon: ScrollText },
+    ],
+  },
+];
+const ACCOUNT_NAV: NavItem = { href: "/dashboard/account", label: "Account", short: "Account", icon: UserRound };
+const ADMIN_NAV: NavItem = { href: "/dashboard/admin", label: "Admin", short: "Admin", icon: Users };
+
+function useIsAdmin() {
   const { state } = useDashboard();
-  return state?.meta.user.role === "admin" ? [...NAV, ADMIN_NAV] : NAV;
+  return state?.meta.user.role === "admin";
+}
+
+/** Every page in order; phones show the first four as tabs and the rest under "More". */
+function useNav(): NavItem[] {
+  const admin = useIsAdmin();
+  const all = NAV_GROUPS.flatMap((g) => g.items);
+  // Phone tabs: Home, Bots, Trades, Brokers.
+  const brokers = all.find((n) => n.href === "/dashboard/brokers")!;
+  const ordered = [...all.slice(0, 3), brokers, ...all.slice(3).filter((n) => n !== brokers), ACCOUNT_NAV];
+  return admin ? [...ordered, ADMIN_NAV] : ordered;
 }
 
 // Phones show the first four in the tab bar; the rest live under "More".
@@ -108,30 +140,48 @@ function EngineStatus({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function Sidebar() {
+function SideLink({ href, label, icon: Icon }: NavItem) {
   const pathname = usePathname();
-  const nav = useNav();
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
+        isActive(pathname, href)
+          ? "bg-profit/10 font-medium text-profit"
+          : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </Link>
+  );
+}
+
+function Sidebar() {
+  const admin = useIsAdmin();
   return (
     <aside className="hidden border-r border-white/5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:shrink-0 lg:flex-col">
       <div className="px-5 py-6">
         <Logo className="text-lg" />
       </div>
-      <nav className="flex flex-col gap-1 px-3">
-        {nav.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
-              isActive(pathname, href)
-                ? "bg-profit/10 font-medium text-profit"
-                : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </Link>
+      <nav className="flex flex-col gap-5 overflow-y-auto px-3">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label}>
+            <div className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">{group.label}</div>
+            <div className="flex flex-col gap-0.5">
+              {group.items.map((item) => (
+                <SideLink key={item.href} {...item} />
+              ))}
+            </div>
+          </div>
         ))}
+        {admin && (
+          <div>
+            <div className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">Admin</div>
+            <SideLink {...ADMIN_NAV} />
+          </div>
+        )}
       </nav>
       <div className="mt-auto space-y-2 p-3">
         <EngineStatus />
@@ -152,52 +202,19 @@ function ProfileChip() {
     .map((p: string) => p[0]!.toUpperCase())
     .join("");
   return (
-    <Link href="/dashboard/account" className="flex items-center gap-2.5 rounded-xl px-2 py-2 text-sm hover:bg-white/[0.04]">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-profit/15 text-xs font-semibold text-profit">{initials}</span>
-      <span className="min-w-0">
-        <span className="block truncate font-medium">{name}</span>
-        <span className="block truncate text-xs text-muted-foreground">{user?.email ?? "Add your email"}</span>
-      </span>
-    </Link>
+    <div className="flex items-center gap-1">
+      <Link href="/dashboard/account" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-2 text-sm hover:bg-white/[0.04]">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-profit/15 text-xs font-semibold text-profit">{initials}</span>
+        <span className="min-w-0">
+          <span className="block truncate font-medium">{name}</span>
+          <span className="block truncate text-xs text-muted-foreground">{user?.email ?? "Add your email"}</span>
+        </span>
+      </Link>
+      <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out" title="Sign out" className="shrink-0 text-muted-foreground">
+        <LogOut />
+      </Button>
+    </div>
   );
-}
-
-function useKillSwitch() {
-  const { state, refresh } = useDashboard();
-  const { confirm, toast } = useFeedback();
-  const [busy, setBusy] = useState(false);
-  const on = state?.settings.kill_switch ?? false;
-
-  const toggle = async () => {
-    const ok = await confirm(
-      on
-        ? {
-            title: "Release the kill switch?",
-            description: "Bots stay paused until you start each one again.",
-            confirmLabel: "Release",
-          }
-        : {
-            title: "Activate kill switch?",
-            description:
-              "Every bot pauses and every open position closes — including positions from other EAs on your MT5 accounts.",
-            confirmLabel: "Stop everything",
-            danger: true,
-          },
-    );
-    if (!ok) return;
-    setBusy(true);
-    try {
-      await api("/api/kill-switch", "POST", { on: !on });
-      await refresh();
-      toast(on ? "Kill switch released" : "Kill switch active — all bots paused", on ? "success" : "error");
-    } catch (e) {
-      toast((e as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return { on, busy, toggle, ready: Boolean(state) };
 }
 
 async function logout() {
@@ -212,57 +229,31 @@ function TopBar() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-white/5 bg-ink/85 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-      <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6 lg:h-16 lg:px-8">
+      <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6 lg:h-14 lg:px-8">
         {/* Phones */}
         <div className="flex items-center gap-3 lg:hidden">
           <Logo className="text-base" />
-          <EngineStatus compact />
         </div>
         {/* Desktop */}
         <div className="hidden items-center gap-4 text-sm text-muted-foreground lg:flex">
-          <EngineStatus compact />
           {state ? (
             <span>
-              <span className="text-foreground">{running}</span> bots running ·{" "}
-              <span className="text-foreground">{state.open_trades.length}</span> open positions
+              <span className="text-foreground">{running}</span> bot{running === 1 ? "" : "s"} running ·{" "}
+              <span className="text-foreground">{state.open_trades.length}</span> open position{state.open_trades.length === 1 ? "" : "s"}
             </span>
           ) : (
             <span className="h-4 w-48 animate-pulse rounded bg-white/5" />
           )}
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild className="hidden lg:inline-flex">
-            <Link href="/dashboard/brokers">
-              <PlugZap /> Connect broker
-            </Link>
-          </Button>
-          <Button size="sm" asChild className="hidden lg:inline-flex">
-            <Link href="/dashboard/bots?new=1">
-              <Plus /> New bot
-            </Link>
-          </Button>
-          <Button
-            variant={kill.on ? "outline" : "destructive"}
-            size="sm"
-            onClick={kill.toggle}
-            disabled={kill.busy || !kill.ready}
-            aria-label={kill.on ? "Release kill switch" : "Kill switch"}
-            className="px-3"
-          >
-            <Octagon />
-            <span className="sm:hidden">{kill.on ? "Release" : "Stop all"}</span>
-            <span className="hidden sm:inline">{kill.on ? "Release kill switch" : "Kill switch"}</span>
-          </Button>
-          <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out" className="hidden lg:inline-flex">
-            <LogOut />
-          </Button>
-        </div>
+        <EngineStatus compact />
       </div>
       <AccountBanner />
       {kill.on && (
-        <div className="border-t border-loss/30 bg-loss/10 px-4 py-2 text-center text-xs font-medium text-loss sm:text-sm">
-          Kill switch is ON — no new trades will be placed.
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-loss/30 bg-loss/10 px-4 py-2 text-center text-xs font-medium text-loss sm:text-sm">
+          <span>Kill switch is ON — no new trades will be placed.</span>
+          <button onClick={kill.toggle} disabled={kill.busy} className="font-semibold underline">
+            Release
+          </button>
         </div>
       )}
     </header>
@@ -354,14 +345,6 @@ function TabBar() {
           <DialogHeader>
             <DialogTitle>More</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-2">
-            <Link href="/dashboard/bots?new=1" className="flex items-center gap-2 rounded-xl bg-profit px-3 py-3 text-sm font-semibold text-ink">
-              <Plus className="h-4 w-4" /> New bot
-            </Link>
-            <Link href="/dashboard/brokers" className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-sm">
-              <PlugZap className="h-4 w-4" /> Connect broker
-            </Link>
-          </div>
           <div className="divide-y divide-white/5 rounded-xl border border-white/10">
             {more.map(({ href, label, icon: Icon }) => (
               <Link

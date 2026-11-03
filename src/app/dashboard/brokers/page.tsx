@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Download, RefreshCw, Trash2 } from "lucide-react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Download, PlugZap, RefreshCw, Trash2, X } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
-import { BrokerStatusBadge, CopyRow, EmptyState, Field, LastSeen, PageHeader, Panel } from "@/components/app/widgets";
+import { BrokerStatusBadge, CopyRow, Field, LastSeen, PageHeader, Panel } from "@/components/app/widgets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,34 +14,77 @@ import { api, money } from "@/lib/client";
 import type { PublicBroker } from "@/lib/trading/state";
 
 export default function BrokersPage() {
+  return (
+    <Suspense>
+      <BrokersPageInner />
+    </Suspense>
+  );
+}
+
+function BrokersPageInner() {
   const { state } = useDashboard();
+  const params = useSearchParams();
   const [bridge, setBridge] = useState<{ key: string; label: string } | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const connectRef = useRef<HTMLDivElement>(null);
+  const hasAccounts = Boolean(state?.brokers.length);
+  // With no accounts yet, the connect options are the page; otherwise they open on demand.
+  const showConnect = connecting || (Boolean(state) && !hasAccounts);
+
+  const openConnect = () => {
+    setConnecting(true);
+    setTimeout(() => connectRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
+  useEffect(() => {
+    if (params.get("connect")) openConnect();
+  }, [params]);
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Brokers"
-        description="Connect a demo account first. Credentials are encrypted and only ever allowed to trade — never withdraw."
+        description="Your connected trading accounts. Credentials are encrypted and only ever allowed to trade — never withdraw."
+        action={
+          hasAccounts && !connecting ? (
+            <Button onClick={openConnect} className="w-full sm:w-auto">
+              <PlugZap /> Connect broker
+            </Button>
+          ) : undefined
+        }
       />
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ExnessConnect onCreated={setBridge} />
-        <DerivConnect />
-      </div>
 
       {bridge && <BridgeInstructions bridgeKey={bridge.key} label={bridge.label} onDone={() => setBridge(null)} />}
 
-      <Panel title="Connected accounts">
-        {state?.brokers.length ? (
+      {hasAccounts && (
+        <Panel title="Connected accounts">
           <div className="divide-y divide-white/5">
-            {state.brokers.map((b) => (
+            {state!.brokers.map((b) => (
               <BrokerRow key={b.id} broker={b} />
             ))}
           </div>
-        ) : (
-          <EmptyState>No accounts yet.</EmptyState>
-        )}
-      </Panel>
+        </Panel>
+      )}
+
+      {showConnect && (
+        <div ref={connectRef} className="scroll-mt-24 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-ivory">Connect an account</h2>
+              <p className="text-sm text-muted-foreground">Start with a demo account. Choose your broker:</p>
+            </div>
+            {hasAccounts && (
+              <Button variant="ghost" size="icon" onClick={() => setConnecting(false)} aria-label="Close">
+                <X />
+              </Button>
+            )}
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <DerivConnect />
+            <ExnessConnect onCreated={setBridge} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
