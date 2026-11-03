@@ -453,12 +453,16 @@ export async function scriptStrategy(
   context?: ScriptContext,
 ): Promise<StrategyDefinition & { run: (candles: Candle[], params: Record<string, number>) => ScriptRun }> {
   const qjs = await loadScriptEngine();
-  const runs = new WeakMap<Candle[], ScriptRun>();
+  // One sandbox run per candle array and set of settings (the backtester may try several settings).
+  const runs = new WeakMap<Candle[], Map<string, ScriptRun>>();
   const run = (candles: Candle[], params: Record<string, number>) => {
-    let r = runs.get(candles);
+    let byParams = runs.get(candles);
+    if (!byParams) runs.set(candles, (byParams = new Map()));
+    const key = JSON.stringify(params ?? {});
+    let r = byParams.get(key);
     if (!r) {
       r = runScript(qjs, code, candles, params, context);
-      runs.set(candles, r);
+      byParams.set(key, r);
     }
     return r;
   };

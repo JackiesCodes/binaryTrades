@@ -96,4 +96,11 @@ describe("script bots", () => {
     expect(result.trades.length).toBeGreaterThanOrEqual(48);
     expect(result.trades.filter((t) => t.reason !== "end").every((t) => t.exit_epoch - t.entry_epoch === 3600)).toBe(true);
   });
+
+  it("re-runs the script when the settings change", async () => {
+    const def = await scriptStrategy(`const d = input("dir", 1); function onBar(i) { return d > 0 ? "buy" : "sell"; }`);
+    const bars = candles.slice(0, 10);
+    expect(def.positions(bars, { dir: 1 })[5]).toBe(1);
+    expect(def.positions(bars, { dir: -1 })[5]).toBe(-1);
+  });
 });
