@@ -2,15 +2,15 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Download, PlugZap, RefreshCw, Trash2, X } from "lucide-react";
+import { Download, PlugZap, RefreshCw, Trash2, Wallet } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
-import { BrokerStatusBadge, CopyRow, Field, LastSeen, PageHeader, Panel } from "@/components/app/widgets";
-import { Badge } from "@/components/ui/badge";
+import { BrokerStatusBadge, CopyRow, EmptyState, Field, PageSkeleton, Panel } from "@/components/app/widgets";
+import { AsideTitle, FieldBox, IconTile, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, money } from "@/lib/client";
+import { api, money, timeAgo } from "@/lib/client";
 import type { PublicBroker } from "@/lib/trading/state";
 
 export default function BrokersPage() {
@@ -25,71 +25,67 @@ function BrokersPageInner() {
   const { state } = useDashboard();
   const params = useSearchParams();
   const [bridge, setBridge] = useState<{ key: string; label: string } | null>(null);
-  const [connecting, setConnecting] = useState(false);
+  const [kind, setKind] = useState<"deriv" | "mt5">("deriv");
   const connectRef = useRef<HTMLDivElement>(null);
-  const hasAccounts = Boolean(state?.brokers.length);
-  // With no accounts yet, the connect options are the page; otherwise they open on demand.
-  const showConnect = connecting || (Boolean(state) && !hasAccounts);
-
-  const openConnect = () => {
-    setConnecting(true);
-    setTimeout(() => connectRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  };
 
   useEffect(() => {
-    if (params.get("connect")) openConnect();
+    if (params.get("connect")) setTimeout(() => connectRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }, [params]);
 
+  if (!state) return <PageSkeleton />;
+  const brokers = state.brokers;
+  const attention = brokers.filter((b) => b.status !== "connected");
+  const demoEq = brokers.filter((b) => b.is_demo).reduce((s, b) => s + b.equity, 0);
+  const realEq = brokers.filter((b) => !b.is_demo).reduce((s, b) => s + b.equity, 0);
+  const lastSync = brokers.map((b) => b.last_sync_at).filter(Boolean).sort().pop() ?? null;
+
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Brokers"
-        description="Your connected trading accounts. Credentials are encrypted and only ever allowed to trade — never withdraw."
-        action={
-          hasAccounts && !connecting ? (
-            <Button onClick={openConnect} className="w-full sm:w-auto">
-              <PlugZap /> Connect broker
-            </Button>
-          ) : undefined
-        }
-      />
-
-      {bridge && <BridgeInstructions bridgeKey={bridge.key} label={bridge.label} onDone={() => setBridge(null)} />}
-
-      {hasAccounts && (
-        <Panel title="Connected accounts">
-          <div className="divide-y divide-white/5">
-            {state!.brokers.map((b) => (
-              <BrokerRow key={b.id} broker={b} />
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      {showConnect && (
-        <div ref={connectRef} className="scroll-mt-24 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-ivory">Connect an account</h2>
-              <p className="text-sm text-muted-foreground">Start with a demo account. Choose your broker:</p>
-            </div>
-            {hasAccounts && (
-              <Button variant="ghost" size="icon" onClick={() => setConnecting(false)} aria-label="Close">
-                <X />
-              </Button>
-            )}
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <DerivConnect />
-            <ExnessConnect onCreated={setBridge} />
-          </div>
+    <Workspace
+      asideFirstOnPhone={!brokers.length}
+      strip={
+        <Strip
+          icon={PlugZap}
+          title="Accounts"
+          sub="Deriv & MetaTrader 5"
+          stats={[
+            { label: "Connected", value: String(brokers.length - attention.length) },
+            { label: "Needs attention", value: String(attention.length), tone: attention.length ? "text-amber-300" : undefined },
+            { label: "Demo equity", value: money(demoEq) },
+            { label: "Real equity", value: money(realEq), tone: realEq ? "text-gold" : undefined },
+            { label: "Last sync", value: lastSync ? timeAgo(lastSync) : "—" },
+          ]}
+        />
+      }
+      aside={
+        <div ref={connectRef} className="flex scroll-mt-24 flex-col gap-3.5">
+          <AsideTitle icon={PlugZap}>Connect broker</AsideTitle>
+          <Switcher
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "deriv", label: "Deriv" },
+              { value: "mt5", label: "MetaTrader 5" },
+            ]}
+          />
+          {kind === "deriv" ? <DerivConnect /> : <ExnessConnect onCreated={setBridge} />}
+          <div className="h-px bg-white/[0.06]" />
+          <KV rows={[["Can trade", "Yes", "text-profit"], ["Can withdraw", "Never"], ["Keys stored", "Encrypted"]]} />
         </div>
+      }
+    >
+      {bridge && <BridgeInstructions bridgeKey={bridge.key} label={bridge.label} onDone={() => setBridge(null)} />}
+      {brokers.length ? (
+        brokers.map((b) => <BrokerRow key={b.id} broker={b} onReconnect={() => connectRef.current?.scrollIntoView({ behavior: "smooth" })} />)
+      ) : (
+        <EmptyState>
+          No accounts yet. Start with a demo account: connect Deriv with an API token, or any MetaTrader 5 broker (like Exness) with the bridge EA.
+        </EmptyState>
       )}
-    </div>
+    </Workspace>
   );
 }
 
-function BrokerRow({ broker }: { broker: PublicBroker }) {
+function BrokerRow({ broker, onReconnect }: { broker: PublicBroker; onReconnect: () => void }) {
   const { refresh } = useDashboard();
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
@@ -117,33 +113,56 @@ function BrokerRow({ broker }: { broker: PublicBroker }) {
     }
   };
 
+  const needsKeys = broker.kind === "deriv" && broker.status === "error";
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+    <article className="grid gap-3 rounded-[18px] bg-panel p-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center md:gap-5">
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">{broker.label}</span>
-          <Badge variant="muted">{broker.kind === "mt5" ? "MetaTrader 5" : "Deriv API"}</Badge>
-          {broker.login && <Badge variant={broker.is_demo ? "default" : "gold"}>{broker.is_demo ? "DEMO" : "REAL"}</Badge>}
+        <div className="flex items-center gap-3">
+          <IconTile icon={Wallet} tone={broker.is_demo ? "profit" : "gold"} />
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="truncate font-bold text-ivory">{broker.label}</span>
+              <BrokerStatusBadge broker={broker} />
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {broker.kind === "mt5" ? "MetaTrader 5" : "Deriv API"}
+              {broker.login ? ` · ${broker.login}${broker.server ? ` · ${broker.server}` : ""}` : ""} ·{" "}
+              <span className={broker.is_demo ? undefined : "font-semibold text-gold"}>{broker.is_demo ? "DEMO" : "REAL"}</span>
+            </div>
+          </div>
         </div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          {broker.login ? `Login ${broker.login}${broker.server ? ` · ${broker.server}` : ""} · ` : ""}
-          Balance {money(broker.balance, broker.currency)} · Equity (balance + open trades) {money(broker.equity, broker.currency)} · synced{" "}
-          <LastSeen iso={broker.last_sync_at} />
-        </div>
-        {broker.error && <div className="mt-1 text-xs text-amber-300">{broker.error}</div>}
+        {broker.error && <div className="mt-2 text-xs text-amber-300">{broker.error}</div>}
+        <dl className="mt-3 grid grid-cols-3 gap-x-4 text-xs sm:w-fit sm:gap-x-8">
+          {[
+            ["Balance", money(broker.balance, broker.currency)],
+            ["Equity", money(broker.equity, broker.currency)],
+            ["Synced", broker.last_sync_at ? timeAgo(broker.last_sync_at) : "never"],
+          ].map(([k, v]) => (
+            <div key={k} className="min-w-0">
+              <dt className="text-muted-foreground">{k}</dt>
+              <dd className="truncate font-mono text-sm tabular-nums text-ivory">{v}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
-      <div className="flex items-center gap-2">
-        <BrokerStatusBadge broker={broker} />
-        {broker.kind === "deriv" && (
-          <Button size="icon" variant="ghost" onClick={() => act("POST")} disabled={busy} aria-label="Sync now">
-            <RefreshCw />
+      <div>
+        {needsKeys && (
+          <Button size="sm" onClick={onReconnect}>
+            <RefreshCw /> Reconnect
           </Button>
         )}
-        <Button size="icon" variant="ghost" className="text-loss" onClick={() => act("DELETE")} disabled={busy} aria-label="Disconnect">
-          <Trash2 />
-        </Button>
       </div>
-    </div>
+      <div className="flex gap-1 text-muted-foreground md:flex-col">
+        {broker.kind === "deriv" && (
+          <button onClick={() => act("POST")} disabled={busy} className="rounded-lg p-1.5 hover:bg-white/[0.06] hover:text-ivory" aria-label="Sync now" title="Sync now">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        )}
+        <button onClick={() => act("DELETE")} disabled={busy} className="rounded-lg p-1.5 hover:bg-loss/10 hover:text-loss" aria-label="Disconnect" title="Disconnect">
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -167,16 +186,16 @@ function ExnessConnect({ onCreated }: { onCreated: (b: { key: string; label: str
   };
 
   return (
-    <Panel title="Exness (MetaTrader 5)">
+    <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
         Exness trades through MetaTrader 5. You run the small <b className="text-foreground">binaryTrades Bridge</b> EA in your MT5 terminal; it
         executes the orders and reports positions back here. Works with any MT5 broker (Deriv MT5 too).
       </p>
-      <div className="mt-4 space-y-3">
+      <FieldBox>
         <Field label="Account name">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} />
         </Field>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <Button onClick={create} disabled={busy}>
             {busy ? "Creating…" : "Generate bridge key"}
           </Button>
@@ -189,12 +208,12 @@ function ExnessConnect({ onCreated }: { onCreated: (b: { key: string; label: str
         <p className="text-xs text-muted-foreground">
           The MT5 terminal must stay running for bots to trade. A Windows VPS keeps it online 24/7.
         </p>
-        <p className="rounded-lg border border-gold/30 bg-gold/[0.06] px-3 py-2 text-xs text-gold">
-          Bridge EA v2: bots and scripts can now trade on your MT5 broker&apos;s own prices. If you installed the EA before, download it again,
-          replace the old file and recompile.
-        </p>
-      </div>
-    </Panel>
+      </FieldBox>
+      <p className="rounded-lg bg-gold/[0.08] px-3 py-2 text-xs text-gold">
+        Bridge EA v2: bots and scripts can trade on your MT5 broker&apos;s own prices. If you installed the EA before, download it again, replace the
+        old file and recompile.
+      </p>
+    </div>
   );
 }
 
@@ -251,12 +270,12 @@ function DerivConnect() {
   };
 
   return (
-    <Panel title="Deriv (API)">
+    <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
         Trades Deriv forex, gold, crypto and Volatility indices as <b className="text-foreground">Multiplier</b> contracts, with stop-loss
         and take-profit set on every trade.
       </p>
-      <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
         <li>
           Sign in at <b className="text-foreground">developers.deriv.com</b> with your Deriv login and register an app — copy its{" "}
           <b className="text-foreground">App ID</b>.
@@ -267,7 +286,7 @@ function DerivConnect() {
         </li>
         <li>Paste both below. Each Deriv Options account the token can reach (demo and real) is connected separately.</li>
       </ol>
-      <div className="mt-4 grid gap-2 sm:grid-cols-[9rem_1fr_auto]">
+      <FieldBox>
         <Input value={appId} onChange={(e) => setAppId(e.target.value)} placeholder="App ID" autoComplete="off" aria-label="Deriv App ID" />
         <Input
           type="password"
@@ -277,11 +296,11 @@ function DerivConnect() {
           autoComplete="off"
           aria-label="Deriv Personal Access Token"
         />
-        <Button onClick={connect} disabled={busy || token.length < 8 || !appId.trim()}>
-          {busy ? "Checking…" : "Connect"}
-        </Button>
-      </div>
-      {error && <p className="mt-2 text-sm text-loss">{error}</p>}
-    </Panel>
+      </FieldBox>
+      {error && <p className="text-sm text-loss">{error}</p>}
+      <Button onClick={connect} disabled={busy || token.length < 8 || !appId.trim()} className="h-12 w-full text-[15px] font-bold">
+        <PlugZap /> {busy ? "Checking…" : "Connect"}
+      </Button>
+    </div>
   );
 }

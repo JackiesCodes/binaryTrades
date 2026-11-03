@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
+  Bell,
   Bot,
   CandlestickChart,
+  ChevronDown,
   Code2,
   FlaskConical,
   LayoutDashboard,
@@ -14,18 +15,20 @@ import {
   MoreHorizontal,
   PlugZap,
   ScrollText,
+  Search,
   ShieldCheck,
   UserRound,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import { BrandMark, Wordmark } from "@/components/app/brand";
 import { DashboardProvider, useDashboard } from "@/components/app/dashboard-context";
 import { FeedbackProvider, useFeedback } from "@/components/app/feedback";
 import { useKillSwitch } from "@/components/app/kill-switch";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { api, timeAgo } from "@/lib/client";
+import { api, money, timeAgo } from "@/lib/client";
+import { timeframeLabel } from "@/lib/trading/symbols";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -36,31 +39,23 @@ interface NavItem {
 }
 
 // Grouped by what you are doing: trading, building strategies, managing accounts and safety.
-const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: "Trade",
-    items: [
-      { href: "/dashboard", label: "Overview", short: "Home", icon: LayoutDashboard },
-      { href: "/dashboard/bots", label: "Bots", short: "Bots", icon: Bot },
-      { href: "/dashboard/trades", label: "Trades", short: "Trades", icon: CandlestickChart },
-    ],
-  },
-  {
-    label: "Build",
-    items: [
-      { href: "/dashboard/strategy-lab", label: "Strategy Lab", short: "Lab", icon: FlaskConical },
-      { href: "/dashboard/scripts", label: "Scripts", short: "Scripts", icon: Code2 },
-    ],
-  },
-  {
-    label: "Accounts & safety",
-    items: [
-      { href: "/dashboard/brokers", label: "Brokers", short: "Brokers", icon: PlugZap },
-      { href: "/dashboard/risk", label: "Risk Guard", short: "Risk", icon: ShieldCheck },
-      { href: "/dashboard/logs", label: "Alerts & Logs", short: "Logs", icon: ScrollText },
-    ],
-  },
+const NAV_GROUPS: NavItem[][] = [
+  [
+    { href: "/dashboard", label: "Overview", short: "Home", icon: LayoutDashboard },
+    { href: "/dashboard/bots", label: "Bots", short: "Bots", icon: Bot },
+    { href: "/dashboard/trades", label: "Trades", short: "Trades", icon: CandlestickChart },
+  ],
+  [
+    { href: "/dashboard/strategy-lab", label: "Strategy Lab", short: "Lab", icon: FlaskConical },
+    { href: "/dashboard/scripts", label: "Scripts", short: "Scripts", icon: Code2 },
+  ],
+  [
+    { href: "/dashboard/brokers", label: "Brokers", short: "Brokers", icon: PlugZap },
+    { href: "/dashboard/risk", label: "Risk Guard", short: "Risk", icon: ShieldCheck },
+    { href: "/dashboard/logs", label: "Alerts & Logs", short: "Logs", icon: ScrollText },
+  ],
 ];
+const ALL_NAV = NAV_GROUPS.flat();
 const ACCOUNT_NAV: NavItem = { href: "/dashboard/account", label: "Account", short: "Account", icon: UserRound };
 const ADMIN_NAV: NavItem = { href: "/dashboard/admin", label: "Admin", short: "Admin", icon: Users };
 
@@ -68,19 +63,6 @@ function useIsAdmin() {
   const { state } = useDashboard();
   return state?.meta.user.role === "admin";
 }
-
-/** Every page in order; phones show the first four as tabs and the rest under "More". */
-function useNav(): NavItem[] {
-  const admin = useIsAdmin();
-  const all = NAV_GROUPS.flatMap((g) => g.items);
-  // Phone tabs: Home, Bots, Trades, Brokers.
-  const brokers = all.find((n) => n.href === "/dashboard/brokers")!;
-  const ordered = [...all.slice(0, 3), brokers, ...all.slice(3).filter((n) => n !== brokers), ACCOUNT_NAV];
-  return admin ? [...ordered, ADMIN_NAV] : ordered;
-}
-
-// Phones show the first four in the tab bar; the rest live under "More".
-const TAB_COUNT = 4;
 
 function isActive(pathname: string, href: string) {
   return href === "/dashboard" ? pathname === href : pathname.startsWith(href);
@@ -90,11 +72,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <FeedbackProvider>
       <DashboardProvider>
-        <div className="flex min-h-[100dvh] flex-col lg:flex-row">
-          <Sidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TopBar />
-            <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 lg:px-8 lg:pb-10 lg:pt-6">
+        <div className="flex min-h-[100dvh] flex-col">
+          <TopBar />
+          <div className="flex flex-1">
+            <Rail />
+            <main className="mx-auto w-full min-w-0 max-w-[1680px] flex-1 px-3 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 lg:pb-6 lg:pl-1 lg:pr-5">
               {children}
             </main>
           </div>
@@ -105,151 +87,96 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Logo({ className }: { className?: string }) {
+async function logout() {
+  await api("/api/auth/logout", "POST").catch(() => undefined);
+  window.location.href = "/";
+}
+
+// ---------------------------------------------------------------------------
+// Icon rail (desktop)
+
+function RailLink({ item }: { item: NavItem }) {
+  const pathname = usePathname();
+  const active = isActive(pathname, item.href);
+  const Icon = item.icon;
   return (
-    <Link href="/dashboard" className={cn("flex items-center gap-2", className)}>
+    <Link
+      href={item.href}
+      aria-label={item.label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group relative flex h-11 w-11 items-center justify-center rounded-full transition-colors",
+        active ? "bg-profit text-ink" : "text-muted-foreground hover:bg-white/[0.06] hover:text-ivory",
+      )}
+    >
+      <Icon className="h-[19px] w-[19px]" />
+      <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-panel px-2.5 py-1.5 text-xs font-medium text-ivory opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+        {item.label}
+      </span>
+    </Link>
+  );
+}
+
+function Rail() {
+  const admin = useIsAdmin();
+  return (
+    <nav
+      aria-label="Main"
+      className="sticky top-[64px] hidden h-[calc(100dvh-64px)] w-[76px] shrink-0 flex-col items-center gap-3 py-3 lg:flex"
+    >
+      {NAV_GROUPS.map((group, i) => (
+        <div key={i} className="flex flex-col gap-1 rounded-[26px] bg-panel p-1.5">
+          {group.map((item) => (
+            <RailLink key={item.href} item={item} />
+          ))}
+        </div>
+      ))}
+      <div className="mt-auto flex flex-col gap-1 rounded-[26px] bg-panel p-1.5">
+        {admin && <RailLink item={ADMIN_NAV} />}
+        <RailLink item={ACCOUNT_NAV} />
+        <button
+          onClick={logout}
+          aria-label="Sign out"
+          title="Sign out"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-loss"
+        >
+          <LogOut className="h-[19px] w-[19px]" />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Top bar
+
+const chip = "inline-flex h-10 items-center gap-2 rounded-xl bg-panel px-3.5 text-sm text-ivory";
+
+function Logo() {
+  return (
+    <Link href="/dashboard" className="flex shrink-0 items-center gap-2 text-base lg:w-[170px] lg:text-lg">
       <BrandMark />
       <Wordmark />
     </Link>
   );
 }
 
-function EngineStatus({ compact = false }: { compact?: boolean }) {
-  const { state, lastTick, error } = useDashboard();
-  const ok = !error && Boolean(lastTick);
-  if (compact) {
-    return (
-      <span className={cn("flex items-center gap-1.5 text-xs", ok ? "text-profit" : "text-amber-300")}>
-        <span className={cn("h-2 w-2 rounded-full", ok ? "animate-pulse bg-profit" : "bg-amber-300")} />
-        {ok ? "Engine on" : "Connecting"}
-      </span>
-    );
-  }
-  const brokersUp = state?.brokers.filter((b) => b.status === "connected").length ?? 0;
-  return (
-    <div className="glass rounded-xl p-3 text-xs">
-      <div className="uppercase tracking-widest text-muted-foreground">Engine</div>
-      <div className={cn("mt-2 flex items-center gap-2", ok ? "text-profit" : "text-amber-300")}>
-        <Activity className="h-3.5 w-3.5" />
-        {lastTick ? `Ran ${timeAgo(lastTick)}` : "Starting…"}
-      </div>
-      <div className="mt-1 text-muted-foreground">
-        {brokersUp} broker{brokersUp === 1 ? "" : "s"} connected
-      </div>
-    </div>
-  );
-}
-
-function SideLink({ href, label, icon: Icon }: NavItem) {
-  const pathname = usePathname();
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
-        isActive(pathname, href)
-          ? "bg-profit/10 font-medium text-profit"
-          : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
-      )}
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </Link>
-  );
-}
-
-function Sidebar() {
-  const admin = useIsAdmin();
-  return (
-    <aside className="hidden border-r border-white/5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:shrink-0 lg:flex-col">
-      <div className="px-5 py-6">
-        <Logo className="text-lg" />
-      </div>
-      <nav className="flex flex-col gap-5 overflow-y-auto px-3">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label}>
-            <div className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">{group.label}</div>
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <SideLink key={item.href} {...item} />
-              ))}
-            </div>
-          </div>
-        ))}
-        {admin && (
-          <div>
-            <div className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">Admin</div>
-            <SideLink {...ADMIN_NAV} />
-          </div>
-        )}
-      </nav>
-      <div className="mt-auto space-y-2 p-3">
-        <EngineStatus />
-        <ProfileChip />
-      </div>
-    </aside>
-  );
-}
-
-function ProfileChip() {
-  const { state } = useDashboard();
-  const user = state?.meta.user;
-  const name = user?.display_name?.trim() || user?.email?.split("@")[0] || "Your account";
-  const initials = name
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p: string) => p[0]!.toUpperCase())
-    .join("");
-  return (
-    <div className="flex items-center gap-1">
-      <Link href="/dashboard/account" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-2 text-sm hover:bg-white/[0.04]">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-profit/15 text-xs font-semibold text-profit">{initials}</span>
-        <span className="min-w-0">
-          <span className="block truncate font-medium">{name}</span>
-          <span className="block truncate text-xs text-muted-foreground">{user?.email ?? "Add your email"}</span>
-        </span>
-      </Link>
-      <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out" title="Sign out" className="shrink-0 text-muted-foreground">
-        <LogOut />
-      </Button>
-    </div>
-  );
-}
-
-async function logout() {
-  await api("/api/auth/logout", "POST").catch(() => undefined);
-  window.location.href = "/";
-}
-
 function TopBar() {
-  const { state } = useDashboard();
   const kill = useKillSwitch();
-  const running = state?.bots.filter((b) => b.status === "running").length ?? 0;
-
   return (
-    <header className="sticky top-0 z-30 border-b border-white/5 bg-ink/85 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-      <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6 lg:h-14 lg:px-8">
-        {/* Phones */}
-        <div className="flex items-center gap-3 lg:hidden">
-          <Logo className="text-base" />
-        </div>
-        {/* Desktop */}
-        <div className="hidden items-center gap-4 text-sm text-muted-foreground lg:flex">
-          {state ? (
-            <span>
-              <span className="text-foreground">{running}</span> bot{running === 1 ? "" : "s"} running ·{" "}
-              <span className="text-foreground">{state.open_trades.length}</span> open position{state.open_trades.length === 1 ? "" : "s"}
-            </span>
-          ) : (
-            <span className="h-4 w-48 animate-pulse rounded bg-white/5" />
-          )}
-        </div>
-        <EngineStatus compact />
+    <header className="sticky top-0 z-30 bg-ink/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+      <div className="flex h-14 items-center gap-2.5 px-3 sm:px-5 lg:h-16 lg:gap-3">
+        <Logo />
+        <SearchBox />
+        <div className="flex-1" />
+        <AlertsBell />
+        <EquityChip />
+        <BookSwitch />
+        <Profile />
       </div>
       <AccountBanner />
       {kill.on && (
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-loss/30 bg-loss/10 px-4 py-2 text-center text-xs font-medium text-loss sm:text-sm">
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-loss/10 px-4 py-2 text-center text-xs font-medium text-loss sm:text-sm">
           <span>Kill switch is ON — no new trades will be placed.</span>
           <button onClick={kill.toggle} disabled={kill.busy} className="font-semibold underline">
             Release
@@ -260,6 +187,180 @@ function TopBar() {
   );
 }
 
+function EquityChip() {
+  const { state, view } = useDashboard();
+  if (!state?.brokers.length) return null;
+  return (
+    <Link href="/dashboard/brokers" className={cn(chip, "px-3 font-mono tabular-nums")} title={`${view === "real" ? "Real" : "Demo"} equity`}>
+      <Wallet className="h-4 w-4 text-muted-foreground" />
+      <span className="hidden sm:inline">{money(state.kpis[view].equity)}</span>
+      <span className="sm:hidden">{money(Math.round(state.kpis[view].equity)).replace(/\.00$/, "")}</span>
+    </Link>
+  );
+}
+
+/** Real or demo accounts: one switch that every page follows. */
+function BookSwitch() {
+  const { state, view, setView } = useDashboard();
+  const hasReal = state?.brokers.some((b) => !b.is_demo);
+  const hasDemo = state?.brokers.some((b) => b.is_demo);
+  if (!state || !(hasReal || hasDemo)) return null;
+  const both = hasReal && hasDemo;
+  return (
+    <button
+      type="button"
+      onClick={() => both && setView(view === "real" ? "demo" : "real")}
+      disabled={!both}
+      className={cn(chip, "hidden md:inline-flex", both && "hover:bg-white/[0.06]")}
+      title={both ? "Switch between real and demo accounts" : undefined}
+    >
+      <span
+        className={cn(
+          "rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wider",
+          view === "real" ? "bg-gold text-ink" : "bg-white/10 text-ivory",
+        )}
+      >
+        {view === "real" ? "REAL" : "DEMO"}
+      </span>
+      {view === "real" ? "Real accounts" : "Demo accounts"}
+      {both && <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+    </button>
+  );
+}
+
+function AlertsBell() {
+  const { state } = useDashboard();
+  const since = Date.now() - 24 * 3600_000;
+  const recent = state?.logs.filter((l) => (l.level === "error" || l.level === "warn") && Date.parse(l.created_at) > since).length ?? 0;
+  return (
+    <Link
+      href="/dashboard/logs"
+      aria-label={recent ? `Alerts & Logs: ${recent} warnings in the last 24 hours` : "Alerts & Logs"}
+      className={cn(chip, "relative hidden w-10 justify-center px-0 sm:inline-flex")}
+    >
+      <Bell className="h-4 w-4 text-muted-foreground" />
+      {recent > 0 && <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-gold" />}
+    </Link>
+  );
+}
+
+function Profile() {
+  const { state, lastTick, error } = useDashboard();
+  const user = state?.meta.user;
+  const name = user?.display_name?.trim() || user?.email?.split("@")[0] || "Account";
+  const initials = name
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p: string) => p[0]!.toUpperCase())
+    .join("");
+  const ok = !error && Boolean(lastTick);
+  return (
+    <Link href="/dashboard/account" className="flex shrink-0 items-center gap-2.5 rounded-xl pl-1 lg:pr-1">
+      <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-profit/15 text-sm font-semibold text-profit lg:h-10 lg:w-10">
+        {initials || "·"}
+        <span
+          className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-ink", ok ? "bg-profit" : "bg-amber-300")}
+          aria-hidden
+        />
+      </span>
+      <span className="hidden min-w-0 leading-tight xl:block">
+        <span className="block max-w-[140px] truncate text-sm font-semibold text-ivory">{name}</span>
+        <span className={cn("block text-[11px]", ok ? "text-muted-foreground" : "text-amber-300")}>
+          {ok ? `Engine on · ${timeAgo(lastTick)}` : "Engine connecting…"}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
+/** Jump to a page or a bot. */
+function SearchBox() {
+  const { state } = useDashboard();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOpen(false);
+    setQ("");
+  }, [pathname]);
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const results = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return [];
+    const pages = [...ALL_NAV, ACCOUNT_NAV]
+      .filter((n) => n.label.toLowerCase().includes(term))
+      .map((n) => ({ href: n.href, label: n.label, sub: "Page", icon: n.icon }));
+    const bots = (state?.bots ?? [])
+      .filter((b) => `${b.name} ${b.symbol} ${b.data_symbol}`.toLowerCase().includes(term))
+      .map((b) => ({ href: `/dashboard/bots/${b.id}`, label: b.name, sub: `Bot · ${b.symbol} · ${timeframeLabel(b.timeframe)}`, icon: Bot }));
+    return [...bots, ...pages].slice(0, 8);
+  }, [q, state?.bots]);
+
+  const go = (href: string) => {
+    setOpen(false);
+    router.push(href);
+  };
+
+  return (
+    <div ref={box} className="relative hidden max-w-[460px] flex-1 md:block">
+      <label className="flex h-10 items-center gap-2.5 rounded-xl bg-panel px-3.5 text-sm text-muted-foreground focus-within:ring-1 focus-within:ring-profit/40">
+        <Search className="h-4 w-4 shrink-0" />
+        <input
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setOpen(true);
+            setHi(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") setHi((h) => Math.min(h + 1, results.length - 1));
+            else if (e.key === "ArrowUp") setHi((h) => Math.max(h - 1, 0));
+            else if (e.key === "Enter" && results[hi]) go(results[hi]!.href);
+            else if (e.key === "Escape") setOpen(false);
+          }}
+          placeholder="Search bots and pages"
+          aria-label="Search bots and pages"
+          className="min-w-0 flex-1 bg-transparent text-ivory placeholder:text-muted-foreground focus:outline-none"
+        />
+      </label>
+      {open && q.trim() && (
+        <div className="absolute inset-x-0 top-12 z-50 overflow-hidden rounded-xl bg-panel p-1 shadow-2xl ring-1 ring-white/10">
+          {results.length ? (
+            results.map((r, i) => {
+              const Icon = r.icon;
+              return (
+                <button
+                  key={r.href}
+                  onMouseEnter={() => setHi(i)}
+                  onClick={() => go(r.href)}
+                  className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm", i === hi && "bg-white/[0.06]")}
+                >
+                  <Icon className="h-4 w-4 text-profit" />
+                  <span className="min-w-0 flex-1 truncate text-ivory">{r.label}</span>
+                  <span className="truncate text-xs text-muted-foreground">{r.sub}</span>
+                </button>
+              );
+            })
+          ) : (
+            <div className="px-3 py-2.5 text-sm text-muted-foreground">No bots or pages match “{q.trim()}”.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountBanner() {
   const { state } = useDashboard();
   const { toast } = useFeedback();
@@ -267,7 +368,7 @@ function AccountBanner() {
   if (!user) return null;
   if (!user.email) {
     return (
-      <div className="border-t border-gold/30 bg-gold/10 px-4 py-2 text-center text-xs text-gold sm:text-sm">
+      <div className="bg-gold/10 px-4 py-2 text-center text-xs text-gold sm:text-sm">
         Add your email address to finish upgrading your account.{" "}
         <Link href="/dashboard/account" className="font-semibold underline">
           Add email
@@ -285,7 +386,7 @@ function AccountBanner() {
     }
   };
   return (
-    <div className="border-t border-gold/30 bg-gold/10 px-4 py-2 text-center text-xs text-gold sm:text-sm">
+    <div className="bg-gold/10 px-4 py-2 text-center text-xs text-gold sm:text-sm">
       Confirm your email ({user.email}) to connect broker accounts.{" "}
       <button onClick={resend} className="font-semibold underline">
         Resend the link
@@ -294,48 +395,58 @@ function AccountBanner() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Phone tab bar
+
+// Phone tabs: Home, Bots, Trades, Brokers; everything else is under More.
+const TABS = ["/dashboard", "/dashboard/bots", "/dashboard/trades", "/dashboard/brokers"];
+
 function TabBar() {
   const pathname = usePathname();
-  const nav = useNav();
+  const admin = useIsAdmin();
+  const { state, view, setView } = useDashboard();
   const [moreOpen, setMoreOpen] = useState(false);
-  const tabs = nav.slice(0, TAB_COUNT);
-  const more = nav.slice(TAB_COUNT);
+  const tabs = TABS.map((h) => ALL_NAV.find((n) => n.href === h)!);
+  const more = [...ALL_NAV.filter((n) => !TABS.includes(n.href)), ACCOUNT_NAV, ...(admin ? [ADMIN_NAV] : [])];
   const moreActive = more.some((n) => isActive(pathname, n.href));
+  const both = state?.brokers.some((b) => b.is_demo) && state?.brokers.some((b) => !b.is_demo);
 
   useEffect(() => setMoreOpen(false), [pathname]);
+
+  const tab = (active: boolean, Icon: typeof Bot, label: string) => (
+    <>
+      <span className={cn("flex h-8 w-12 items-center justify-center rounded-full transition-colors", active && "bg-profit text-ink")}>
+        <Icon className="h-[19px] w-[19px]" />
+      </span>
+      {label}
+    </>
+  );
 
   return (
     <>
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-ink/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
       >
-        <div className="grid grid-cols-5">
-          {tabs.map(({ href, short, icon: Icon }) => {
+        <div className="grid grid-cols-5 px-1 pb-1.5 pt-2">
+          {tabs.map(({ href, short, icon }) => {
             const active = isActive(pathname, href);
             return (
               <Link
                 key={href}
                 href={href}
-                className={cn(
-                  "flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
-                  active ? "text-profit" : "text-muted-foreground",
-                )}
+                aria-current={active ? "page" : undefined}
+                className={cn("flex flex-col items-center gap-1 text-[11px] font-medium", active ? "text-profit" : "text-muted-foreground")}
               >
-                <Icon className="h-5 w-5" />
-                {short}
+                {tab(active, icon, short)}
               </Link>
             );
           })}
           <button
             onClick={() => setMoreOpen(true)}
-            className={cn(
-              "flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium",
-              moreActive ? "text-profit" : "text-muted-foreground",
-            )}
+            className={cn("flex flex-col items-center gap-1 text-[11px] font-medium", moreActive ? "text-profit" : "text-muted-foreground")}
           >
-            <MoreHorizontal className="h-5 w-5" />
-            More
+            {tab(moreActive, MoreHorizontal, "More")}
           </button>
         </div>
       </nav>
@@ -345,7 +456,23 @@ function TabBar() {
           <DialogHeader>
             <DialogTitle>More</DialogTitle>
           </DialogHeader>
-          <div className="divide-y divide-white/5 rounded-xl border border-white/10">
+          {both && (
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/30 p-1 text-sm font-semibold">
+              {(["demo", "real"] as const).map((b) => (
+                <button
+                  key={b}
+                  onClick={() => setView(b)}
+                  className={cn(
+                    "rounded-lg py-2",
+                    view === b ? (b === "real" ? "bg-gold text-ink" : "bg-profit text-ink") : "text-muted-foreground",
+                  )}
+                >
+                  {b === "real" ? "Real accounts" : "Demo accounts"}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="divide-y divide-white/5 overflow-hidden rounded-xl bg-white/[0.03]">
             {more.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
@@ -360,7 +487,6 @@ function TabBar() {
               <LogOut className="h-4 w-4" /> Sign out
             </button>
           </div>
-          <EngineStatus />
         </DialogContent>
       </Dialog>
     </>

@@ -50,14 +50,14 @@ export function useKillSwitch() {
 }
 
 /** Compact button for page headers (Bots). */
-export function KillSwitchButton({ className }: { className?: string }) {
+export function KillSwitchButton({ className, variantOff = "destructive" }: { className?: string; variantOff?: "destructive" | "ghost" }) {
   const kill = useKillSwitch();
   return (
     <Button
-      variant={kill.on ? "outline" : "destructive"}
+      variant={kill.on ? "outline" : variantOff === "ghost" ? "outline" : "destructive"}
       onClick={kill.toggle}
       disabled={kill.busy || !kill.ready}
-      className={className}
+      className={cn(!kill.on && variantOff === "ghost" && "border-loss/45 text-loss hover:bg-loss/10 hover:text-loss", className)}
     >
       <Octagon /> {kill.on ? "Release kill switch" : "Stop all bots"}
     </Button>

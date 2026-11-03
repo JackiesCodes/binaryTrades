@@ -1,162 +1,235 @@
 "use client";
 
-import { useState } from "react";
-import { LineChart } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CandlestickChart } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeDialog } from "@/components/app/trade-chart";
-import { EmptyState, PageHeader, PageSkeleton, Panel, PositionsTable, TradeKindBadge } from "@/components/app/widgets";
+import { EmptyState, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
+import { AsideTitle, FieldBox, KV, PositionCard, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { money, pnlClass, price } from "@/lib/client";
+import { money, pct, pnlClass, price } from "@/lib/client";
 import type { Trade } from "@/lib/trading/types";
-import { cn } from "@/lib/utils";
+
+type Tab = "open" | "history" | "signals";
+type Result = "all" | "won" | "lost";
+type Period = "1" | "7" | "30" | "all";
+const PERIODS: Array<{ value: Period; label: string }> = [
+  { value: "1", label: "Today" },
+  { value: "7", label: "Last 7 days" },
+  { value: "30", label: "Last 30 days" },
+  { value: "all", label: "All time" },
+];
 
 function when(iso: string | null) {
   return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
 }
 
+/** "· incl. Deriv commission 4.12" in the close reason → 4.12 */
+function commissionOf(t: Trade): number {
+  const m = t.close_reason?.match(/commission\s+([\d.]+)/i);
+  return m ? Number(m[1]) : 0;
+}
+
 export default function TradesPage() {
-  const { state } = useDashboard();
+  const { state, view } = useDashboard();
+  const [tab, setTab] = useState<Tab>("history");
+  const [botId, setBotId] = useState("all");
+  const [accountId, setAccountId] = useState("all");
+  const [result, setResult] = useState<Result>("all");
+  const [period, setPeriod] = useState<Period>("30");
   const [selected, setSelected] = useState<Trade | null>(null);
+
+  const filtered = useMemo(() => {
+    if (!state) return { open: [], closed: [] };
+    const since = period === "all" ? 0 : Date.now() - Number(period) * 864e5;
+    const keep = (t: Trade) =>
+      t.book === view &&
+      (botId === "all" || t.bot_id === botId) &&
+      (accountId === "all" || t.broker_account_id === accountId);
+    return {
+      open: state.open_trades.filter(keep),
+      closed: state.closed_trades.filter(
+        (t) =>
+          keep(t) &&
+          t.status !== "rejected" &&
+          Date.parse(t.closed_at ?? t.opened_at) >= since &&
+          (result === "all" || (result === "won" ? t.pnl > 0 : t.pnl <= 0)),
+      ),
+    };
+  }, [state, view, botId, accountId, result, period]);
+
   if (!state) return <PageSkeleton />;
+
   const bots = new Map(state.bots.map((b) => [b.id, b.name]));
+  const accounts = state.brokers.filter((b) => (b.is_demo ? "demo" : "real") === view);
+  const closed = filtered.closed;
+  const net = closed.reduce((s, t) => s + t.pnl, 0);
+  const commission = closed.reduce((s, t) => s + commissionOf(t), 0);
+  const won = closed.filter((t) => t.pnl > 0);
+  const lost = closed.filter((t) => t.pnl <= 0);
+  const grossWin = won.reduce((s, t) => s + t.pnl, 0);
+  const grossLoss = -lost.reduce((s, t) => s + t.pnl, 0);
+  const best = closed.length ? Math.max(...closed.map((t) => t.pnl)) : null;
+  const worst = closed.length ? Math.min(...closed.map((t) => t.pnl)) : null;
+  const periodLabel = PERIODS.find((p) => p.value === period)!.label;
+  const rejected = state.closed_trades.filter((t) => t.status === "rejected" && t.book === view).slice(0, 10);
 
   return (
-    <div className="space-y-5">
-      <PageHeader title="Trades" description="Every position, fill and signal across your connected accounts. Tap a trade to see it on the chart." />
+    <Workspace
+      strip={
+        <Strip
+          icon={CandlestickChart}
+          title={botId === "all" ? "All bots" : bots.get(botId) ?? "Bot"}
+          sub={`${periodLabel} · ${view === "real" ? "Real" : "Demo"} accounts`}
+          stats={[
+            { label: "Net P&L", value: money(net, "USD", true), tone: pnlClass(net) },
+            { label: "Trades", value: String(closed.length) },
+            { label: "Won", value: closed.length ? pct((won.length / closed.length) * 100, 0) : "—" },
+            { label: "Commission", value: commission ? money(commission) : "—" },
+            {
+              label: "Best / worst",
+              value: best !== null ? `${money(best, "USD", true)} / ${money(worst, "USD", true)}` : "—",
+              className: "col-span-2 sm:col-span-1",
+            },
+          ]}
+        />
+      }
+      aside={
+        <>
+          <AsideTitle>Filters</AsideTitle>
+          <FieldBox>
+            <label className="grid gap-1.5">
+              <span className="text-xs text-muted-foreground">Bot</span>
+              <select className={selectClass} value={botId} onChange={(e) => setBotId(e.target.value)}>
+                <option value="all">All bots</option>
+                {state.bots.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-xs text-muted-foreground">Account</span>
+              <select className={selectClass} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="all">All {view} accounts</option>
+                {accounts.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-xs text-muted-foreground">Period</span>
+              <select className={selectClass} value={period} onChange={(e) => setPeriod(e.target.value as Period)}>
+                {PERIODS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </FieldBox>
+          <Switcher
+            value={result}
+            onChange={setResult}
+            options={[
+              { value: "all", label: "All" },
+              { value: "won", label: "Won" },
+              { value: "lost", label: "Lost", tone: "loss" },
+            ]}
+          />
+          <div className="h-px bg-white/[0.06]" />
+          <AsideTitle>Summary</AsideTitle>
+          <KV
+            rows={[
+              ["Won", `${won.length} · ${money(grossWin, "USD", true)}`, "text-profit"],
+              ["Lost", `${lost.length} · ${money(-grossLoss, "USD", true)}`, grossLoss ? "text-loss" : undefined],
+              ["Commission (Deriv)", commission ? money(-commission, "USD", true) : "—"],
+              ["Net P&L", money(net, "USD", true), pnlClass(net)],
+              ["Average trade", closed.length ? money(net / closed.length, "USD", true) : "—"],
+              ["Profit factor", grossLoss ? (grossWin / grossLoss).toFixed(2) : closed.length ? "∞" : "—"],
+            ]}
+          />
+        </>
+      }
+    >
       <TradeDialog trade={selected} botName={selected?.bot_id ? bots.get(selected.bot_id) : undefined} onClose={() => setSelected(null)} />
-      <Tabs defaultValue="open">
-        <TabsList className="grid w-full grid-cols-3 sm:inline-flex sm:w-auto">
-          <TabsTrigger value="open">Open ({state.open_trades.length})</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="signals">Signals</TabsTrigger>
-        </TabsList>
+      <Switcher
+        accent={false}
+        value={tab}
+        onChange={setTab}
+        className="w-full sm:w-fit"
+        options={[
+          { value: "open", label: `Open ${filtered.open.length}` },
+          { value: "history", label: `History ${closed.length}` },
+          { value: "signals", label: "Signals" },
+        ]}
+      />
 
-        <TabsContent value="open">
-          <Panel>
-            <PositionsTable trades={state.open_trades} showBook onSelect={setSelected} />
-          </Panel>
-        </TabsContent>
+      {tab === "open" &&
+        (filtered.open.length ? (
+          filtered.open.map((t) => <PositionCard key={t.id} trade={t} onChart={setSelected} />)
+        ) : (
+          <EmptyState>No open positions{botId !== "all" || accountId !== "all" ? " for these filters" : ""}.</EmptyState>
+        ))}
 
-        <TabsContent value="history">
-          <Panel>
-            {state.closed_trades.length ? (
-              <>
-                <ul className="divide-y divide-white/5 md:hidden">
-                  {state.closed_trades.map((t) => (
-                    <li
-                      key={t.id}
-                      className="flex cursor-pointer items-start justify-between gap-3 py-3"
-                      onClick={() => t.status !== "rejected" && setSelected(t)}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{t.symbol}</span>
-                          <span className={cn("text-xs font-bold", t.side === "buy" ? "text-profit" : "text-loss")}>
-                            {t.side.toUpperCase()}
-                          </span>
-                          <TradeKindBadge trade={t} />
-                        </div>
-                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {(t.bot_id && bots.get(t.bot_id)) || (t.external ? "Other EA / manual" : "—")} · {when(t.closed_at)}
-                        </div>
-                        <div
-                          className={cn("mt-0.5 truncate text-xs", t.status === "rejected" ? "text-loss" : "text-muted-foreground")}
-                        >
-                          {t.close_reason}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className={cn("font-mono font-semibold tabular-nums", pnlClass(t.pnl))}>
-                          {t.status === "rejected" ? "—" : money(t.pnl, "USD", true)}
-                        </div>
-                        <div className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                          {price(t.entry_price)} → {price(t.exit_price)}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <div className="scrollbar-thin hidden overflow-x-auto md:block">
-                  <table className="w-full min-w-[760px] text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-muted-foreground">
-                        <th className="px-2 py-2 font-medium">Closed</th>
-                        <th className="px-2 py-2 font-medium">Symbol</th>
-                        <th className="px-2 py-2 font-medium">Side</th>
-                        <th className="px-2 py-2 font-medium">Entry → Exit</th>
-                        <th className="px-2 py-2 font-medium">Bot</th>
-                        <th className="px-2 py-2 font-medium">Reason</th>
-                        <th className="px-2 py-2 text-right font-medium">P&amp;L</th>
-                        <th className="px-2 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {state.closed_trades.map((t) => (
-                        <tr
-                          key={t.id}
-                          className={cn("border-t border-white/5", t.status !== "rejected" && "cursor-pointer hover:bg-white/[0.03]")}
-                          onClick={() => t.status !== "rejected" && setSelected(t)}
-                        >
-                          <td className="px-2 py-2 text-muted-foreground">{when(t.closed_at)}</td>
-                          <td className="px-2 py-2 font-semibold">
-                            {t.symbol}{" "}
-                            <TradeKindBadge trade={t} className="ml-1" />
-                          </td>
-                          <td className={cn("px-2 py-2", t.side === "buy" ? "text-profit" : "text-loss")}>
-                            {t.side.toUpperCase()}
-                          </td>
-                          <td className="px-2 py-2 font-mono">
-                            {price(t.entry_price)} → {price(t.exit_price)}
-                          </td>
-                          <td className="px-2 py-2">{(t.bot_id && bots.get(t.bot_id)) || (t.external ? "Other EA / manual" : "—")}</td>
-                          <td className="px-2 py-2 text-muted-foreground">
-                            {t.status === "rejected" ? <span className="text-loss">{t.close_reason}</span> : t.close_reason}
-                          </td>
-                          <td className={cn("px-2 py-2 text-right font-mono", pnlClass(t.pnl))}>
-                            {t.status === "rejected" ? "—" : money(t.pnl, "USD", true)}
-                          </td>
-                          <td className="px-2 py-2 text-right text-muted-foreground">{t.status !== "rejected" && <LineChart className="inline h-4 w-4" />}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : (
-              <EmptyState>No closed trades yet.</EmptyState>
-            )}
-          </Panel>
-        </TabsContent>
-
-        <TabsContent value="signals">
-          <Panel>
-            {state.signals.length ? (
+      {tab === "history" && (
+        <>
+          {closed.length ? (
+            closed.slice(0, 60).map((t) => <PositionCard key={t.id} trade={t} onChart={setSelected} />)
+          ) : (
+            <EmptyState>No closed trades for these filters.</EmptyState>
+          )}
+          {closed.length > 60 && <p className="text-center text-xs text-muted-foreground">Showing the latest 60 of {closed.length} trades.</p>}
+          {rejected.length > 0 && result === "all" && (
+            <Panel title="Rejected orders">
               <ul className="divide-y divide-white/5 text-sm">
-                {state.signals.map((s) => (
-                  <li key={s.id} className="flex flex-wrap items-start justify-between gap-2 py-3">
-                    <div>
-                      <span className="font-semibold">{(s.bot_id && bots.get(s.bot_id)) ?? "Unknown bot"}</span>{" "}
+                {rejected.map((t) => (
+                  <li key={t.id} className="flex flex-wrap items-start justify-between gap-2 py-2.5">
+                    <span>
+                      <span className="font-semibold">{t.symbol}</span>{" "}
                       <span className="text-muted-foreground">
-                        · {s.source} · {s.action.toUpperCase()} {s.symbol}
-                        {s.price ? ` @ ${price(s.price)}` : ""}
+                        {t.side.toUpperCase()} · {(t.bot_id && bots.get(t.bot_id)) || "—"} · {when(t.opened_at)}
                       </span>
-                      {s.reason && <div className="text-xs text-muted-foreground">{s.reason}</div>}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground">{when(s.received_at)}</span>
-                      <Badge variant={s.status === "accepted" ? "profit" : s.status === "duplicate" ? "muted" : "loss"}>{s.status}</Badge>
-                    </div>
+                    </span>
+                    <span className="text-xs text-loss">{t.close_reason}</span>
                   </li>
                 ))}
               </ul>
-            ) : (
-              <EmptyState>No signals received yet.</EmptyState>
-            )}
-          </Panel>
-        </TabsContent>
-      </Tabs>
-    </div>
+            </Panel>
+          )}
+        </>
+      )}
+
+      {tab === "signals" && (
+        <Panel>
+          {state.signals.length ? (
+            <ul className="divide-y divide-white/5 text-sm">
+              {state.signals.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-start justify-between gap-2 py-3">
+                  <div>
+                    <span className="font-semibold">{(s.bot_id && bots.get(s.bot_id)) ?? "Unknown bot"}</span>{" "}
+                    <span className="text-muted-foreground">
+                      · {s.source} · {s.action.toUpperCase()} {s.symbol}
+                      {s.price ? ` @ ${price(s.price)}` : ""}
+                    </span>
+                    {s.reason && <div className="text-xs text-muted-foreground">{s.reason}</div>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{when(s.received_at)}</span>
+                    <Badge variant={s.status === "accepted" ? "profit" : s.status === "duplicate" ? "muted" : "loss"}>{s.status}</Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState>No signals received yet.</EmptyState>
+          )}
+        </Panel>
+      )}
+    </Workspace>
   );
 }

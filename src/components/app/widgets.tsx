@@ -25,10 +25,10 @@ export function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className={cn("glass-panel min-w-0 p-4 sm:p-5", className)}>
+    <section className={cn("min-w-0 rounded-[18px] bg-panel p-4 sm:p-5", className)}>
       {(title || action) && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          {title && <h2 className="text-sm font-semibold tracking-wide text-ivory">{title}</h2>}
+          {title && <h2 className="text-sm font-semibold text-ivory">{title}</h2>}
           {action}
         </div>
       )}
@@ -63,8 +63,8 @@ export function Kpi({
   className?: string;
 }) {
   return (
-    <div className={cn("glass-panel min-w-0 p-3.5 sm:p-4", className)}>
-      <div className="truncate text-[10px] uppercase tracking-[0.12em] text-muted-foreground sm:text-[11px]">{label}</div>
+    <div className={cn("min-w-0 rounded-[18px] bg-panel p-3.5 sm:p-4", className)}>
+      <div className="truncate text-xs text-muted-foreground">{label}</div>
       <div className={cn("mt-1 truncate font-mono text-lg font-semibold tabular-nums sm:mt-1.5 sm:text-2xl", tone)}>{value}</div>
       {sub && <div className="mt-0.5 truncate text-[11px] text-muted-foreground sm:mt-1 sm:text-xs">{sub}</div>}
     </div>
@@ -100,7 +100,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="tablist" className={cn("inline-flex rounded-xl bg-white/[0.05] p-1 text-xs font-semibold sm:text-sm", className)}>
+    <div role="tablist" className={cn("inline-flex rounded-xl bg-black/30 p-1 text-xs font-semibold sm:text-sm", className)}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -407,7 +407,7 @@ export function PositionsTable({
 export function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {children}
       {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
     </label>
@@ -415,7 +415,7 @@ export function Field({ label, hint, children }: { label: string; hint?: React.R
 }
 
 export const selectClass =
-  "h-11 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 text-base text-foreground sm:text-sm focus:border-profit/50 focus:outline-none [&>option]:bg-ink [&>optgroup]:bg-ink";
+  "h-11 w-full rounded-xl border border-white/10 bg-black/25 px-3 text-base text-foreground sm:text-sm focus:border-profit/50 focus:outline-none [&>option]:bg-ink [&>optgroup]:bg-ink";
 
 export function LastSeen({ iso }: { iso: string | null }) {
   return <span className="text-xs text-muted-foreground">{timeAgo(iso)}</span>;
@@ -425,7 +425,7 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div>
-      <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mb-1 text-xs text-muted-foreground">{label}</div>
       <div className="flex items-start gap-2">
         <code className="min-w-0 flex-1 break-all rounded-lg bg-black/40 px-3 py-2 font-mono text-xs">{value}</code>
         <Button
