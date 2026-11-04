@@ -35,7 +35,7 @@ export function Workspace({
       {aside && (
         <aside
           className={cn(
-            "flex min-w-0 flex-col gap-3.5 rounded-[18px] bg-panel p-4 xl:sticky xl:top-[80px]",
+            "scrollbar-thin flex min-w-0 flex-col gap-3.5 rounded-[18px] bg-panel p-4 [&>*]:shrink-0 xl:sticky xl:top-[calc(var(--header-h,64px)+12px)] xl:max-h-[calc(100dvh-var(--header-h,64px)-24px)] xl:overflow-y-auto",
             asideFirstOnPhone && "order-1 xl:order-2",
           )}
         >

@@ -105,7 +105,7 @@ function RailLink({ item }: { item: NavItem }) {
       aria-label={item.label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex h-11 w-11 items-center justify-center rounded-full transition-colors",
+        "group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9",
         active ? "bg-profit text-ink" : "text-muted-foreground hover:bg-white/[0.06] hover:text-ivory",
       )}
     >
@@ -122,23 +122,23 @@ function Rail() {
   return (
     <nav
       aria-label="Main"
-      className="sticky top-[64px] hidden h-[calc(100dvh-64px)] w-[76px] shrink-0 flex-col items-center gap-3 py-3 lg:flex"
+      className="no-scrollbar sticky top-[var(--header-h,64px)] hidden h-[calc(100dvh-var(--header-h,64px))] w-[76px] shrink-0 flex-col items-center gap-3 overflow-y-auto py-3 lg:flex [@media(max-height:760px)]:gap-2 [@media(max-height:760px)]:py-2"
     >
       {NAV_GROUPS.map((group, i) => (
-        <div key={i} className="flex flex-col gap-1 rounded-[26px] bg-panel p-1.5">
+        <div key={i} className="flex shrink-0 flex-col gap-1 rounded-[26px] bg-panel p-1.5">
           {group.map((item) => (
             <RailLink key={item.href} item={item} />
           ))}
         </div>
       ))}
-      <div className="mt-auto flex flex-col gap-1 rounded-[26px] bg-panel p-1.5">
+      <div className="mt-auto flex shrink-0 flex-col gap-1 rounded-[26px] bg-panel p-1.5">
         {admin && <RailLink item={ADMIN_NAV} />}
         <RailLink item={ACCOUNT_NAV} />
         <button
           onClick={logout}
           aria-label="Sign out"
           title="Sign out"
-          className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-loss"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-loss [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9"
         >
           <LogOut className="h-[19px] w-[19px]" />
         </button>
@@ -161,10 +161,26 @@ function Logo() {
   );
 }
 
+/** Keeps --header-h in sync with the top bar's real height (banners make it taller). */
+function useHeaderHeight() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty("--header-h", `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return ref;
+}
+
 function TopBar() {
   const kill = useKillSwitch();
+  const ref = useHeaderHeight();
   return (
-    <header className="sticky top-0 z-30 bg-ink/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+    <header ref={ref} className="sticky top-0 z-30 bg-ink/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
       <div className="flex h-14 items-center gap-2.5 px-3 sm:px-5 lg:h-16 lg:gap-3">
         <Logo />
         <SearchBox />
@@ -211,7 +227,7 @@ function BookSwitch() {
       type="button"
       onClick={() => both && setView(view === "real" ? "demo" : "real")}
       disabled={!both}
-      className={cn(chip, "hidden md:inline-flex", both && "hover:bg-white/[0.06]")}
+      className={cn(chip, "hidden lg:inline-flex", both && "hover:bg-white/[0.06]")}
       title={both ? "Switch between real and demo accounts" : undefined}
     >
       <span
@@ -312,10 +328,11 @@ function SearchBox() {
   };
 
   return (
-    <div ref={box} className="relative hidden max-w-[460px] flex-1 md:block">
+    <div ref={box} className="relative hidden min-w-0 max-w-[460px] flex-1 md:block">
       <label className="flex h-10 items-center gap-2.5 rounded-xl bg-panel px-3.5 text-sm text-muted-foreground focus-within:ring-1 focus-within:ring-profit/40">
         <Search className="h-4 w-4 shrink-0" />
         <input
+          size={1}
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
