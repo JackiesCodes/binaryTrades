@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { SiteFooter, SiteHeader } from "@/components/site/chrome";
+import { DashboardPreview } from "@/components/site/dashboard-preview";
 import { Button } from "@/components/ui/button";
 
 const FEATURES = [
@@ -84,20 +85,27 @@ const FAQ = [
   },
 ];
 
+const TRUST = [
+  { label: "Works with", value: "Deriv · MT5 · Exness · TradingView" },
+  { label: "Before every order", value: "Risk Guard checks" },
+  { label: "Broker access", value: "Trade-only" },
+  { label: "Price", value: "Free in beta" },
+];
+
 export default function HomePage() {
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <SiteHeader />
-      <main className="flex-1">
+      <main className="mx-auto w-full max-w-[1240px] flex-1 px-3 sm:px-5">
         {/* Hero */}
-        <section className="relative overflow-hidden">
-          <div aria-hidden className="pointer-events-none absolute inset-0 bg-engraving opacity-60 [mask-image:radial-gradient(ellipse_at_top,black_15%,transparent_70%)]" />
-          <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-14 sm:px-6 lg:grid-cols-[1.1fr_1fr] lg:pb-24 lg:pt-24">
+        <section className="relative overflow-hidden rounded-[26px] bg-panel">
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-engraving opacity-50 [mask-image:radial-gradient(ellipse_at_top_left,black_10%,transparent_65%)]" />
+          <div className="relative grid items-center gap-10 px-5 py-12 sm:px-10 lg:grid-cols-[1fr_1.15fr] lg:gap-12 lg:py-16">
             <div>
-              <p className="inline-flex items-center gap-2 rounded-full border border-profit/30 bg-profit/10 px-3 py-1 text-xs font-medium text-profit">
+              <p className="inline-flex items-center gap-2 rounded-full bg-profit/10 px-3 py-1 text-xs font-medium text-profit">
                 <Sparkles className="h-3.5 w-3.5" /> Free during beta
               </p>
-              <h1 className="mt-5 text-4xl font-bold leading-[1.1] tracking-tight text-ivory sm:text-5xl">
+              <h1 className="mt-5 text-4xl font-bold leading-[1.08] tracking-tight text-ivory sm:text-5xl">
                 Automate your trading.
                 <br />
                 <span className="text-profit">Keep control of the risk.</span>
@@ -107,135 +115,165 @@ export default function HomePage() {
                 enforce your limits around the clock, from one dashboard.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Button size="lg" asChild>
+                <Button size="lg" asChild className="h-12 rounded-xl px-6 text-[15px] font-bold">
                   <Link href="/signup">
                     Create a free account <ArrowRight />
                   </Link>
                 </Button>
-                <Button size="lg" variant="outline" asChild>
+                <Button size="lg" variant="outline" asChild className="h-12 rounded-xl border-white/10 bg-black/20 px-6">
                   <Link href="/#how-it-works">See how it works</Link>
                 </Button>
               </div>
               <p className="mt-4 text-xs text-muted-foreground">No card required · Start on a demo account · Your funds stay with your broker</p>
             </div>
-            <FlowDiagram />
+            <DashboardPreview />
           </div>
         </section>
 
-        {/* Brokers */}
-        <section className="border-y border-white/5 bg-white/[0.015]">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-3 px-4 py-6 text-sm text-muted-foreground sm:px-6">
-            <span className="text-xs uppercase tracking-widest">Works with</span>
-            <span className="font-semibold text-ivory">Deriv</span>
-            <span className="font-semibold text-ivory">MetaTrader 5</span>
-            <span className="font-semibold text-ivory">Exness</span>
-            <span className="font-semibold text-ivory">TradingView</span>
+        {/* Key facts, like the dashboard's header strip */}
+        <section className="mt-3.5 grid grid-cols-2 gap-x-6 gap-y-4 rounded-[18px] bg-panel px-5 py-4 md:flex md:items-center md:gap-8">
+          <div className="col-span-2 flex items-center gap-3 md:col-span-1 md:border-r md:border-white/[0.06] md:pr-8">
+            <Tile icon={ShieldCheck} />
+            <div>
+              <div className="font-bold text-ivory">Software, not a broker</div>
+              <div className="text-xs text-muted-foreground">Your money stays with your broker</div>
+            </div>
           </div>
+          {TRUST.map((t) => (
+            <div key={t.label} className="min-w-0">
+              <div className="text-xs text-muted-foreground">{t.label}</div>
+              <div className="truncate text-sm font-medium text-ivory">{t.value}</div>
+            </div>
+          ))}
         </section>
 
         {/* Features */}
-        <section id="features" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
+        <section id="features" className="scroll-mt-24 pt-20">
           <SectionTitle eyebrow="Features" title="Everything between your idea and your broker" />
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map(({ icon: Icon, title, body }) => (
-              <div key={title} className="glass-panel p-5">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-profit/10 text-profit">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <h3 className="mt-4 font-semibold text-ivory">{title}</h3>
+          <div className="mt-10 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map(({ icon, title, body }) => (
+              <article key={title} className="rounded-[18px] bg-panel p-5">
+                <Tile icon={icon} />
+                <h3 className="mt-4 font-bold text-ivory">{title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{body}</p>
-              </div>
+              </article>
             ))}
           </div>
         </section>
 
-        {/* Honest testing */}
-        <section className="border-y border-white/5 bg-white/[0.015]">
-          <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 sm:px-6 lg:grid-cols-2">
-            <div>
+        {/* Strategy Lab */}
+        <section className="pt-20">
+          <div className="grid items-start gap-3.5 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="rounded-[18px] bg-panel p-6 sm:p-8">
               <SectionTitle eyebrow="Strategy Lab" title="Tested on data it has never seen" align="left" />
               <p className="mt-4 text-muted-foreground">
                 Tuning a strategy on past prices always looks good. The Strategy Lab tunes every strategy on the first 70% of the history and ranks
                 them only on the 30% they never saw — with trading costs included — so you see results closer to what live trading looks like.
               </p>
-              <ul className="mt-6 space-y-2 text-sm text-muted-foreground">
+              <div className="mt-6 flex h-10 overflow-hidden rounded-xl bg-black/30 p-1 text-xs font-medium">
+                <div className="flex w-[70%] items-center justify-center rounded-lg text-muted-foreground">Tuning data · 70%</div>
+                <div className="flex w-[30%] items-center justify-center rounded-lg bg-profit font-semibold text-ink">Unseen · 30%</div>
+              </div>
+              <ul className="mt-6 grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
                 <li className="flex gap-2">
-                  <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-profit" /> Real price history from Deriv for forex, gold, crypto and synthetic indices
+                  <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-profit" /> Real Deriv price history: forex, gold, crypto, synthetics
                 </li>
                 <li className="flex gap-2">
-                  <CandlestickChart className="mt-0.5 h-4 w-4 shrink-0 text-profit" /> Return, drawdown, win rate, profit factor and every simulated trade
+                  <CandlestickChart className="mt-0.5 h-4 w-4 shrink-0 text-profit" /> Return, drawdown, win rate, profit factor and every trade
                 </li>
                 <li className="flex gap-2">
-                  <Bot className="mt-0.5 h-4 w-4 shrink-0 text-profit" /> Turn the result into a bot on a demo account in one click
+                  <Bot className="mt-0.5 h-4 w-4 shrink-0 text-profit" /> Turn a result into a demo bot in one click
                 </li>
               </ul>
             </div>
-            <div className="glass-panel p-6 text-sm">
-              <div className="text-xs uppercase tracking-widest text-muted-foreground">How results are measured</div>
-              <div className="mt-4 flex h-10 overflow-hidden rounded-lg text-xs font-medium">
-                <div className="flex w-[70%] items-center justify-center bg-white/10 text-muted-foreground">Tuning data · 70%</div>
-                <div className="flex w-[30%] items-center justify-center bg-profit/25 text-profit">Unseen · 30%</div>
-              </div>
-              <p className="mt-4 text-muted-foreground">
-                Only the unseen 30% decides the ranking. Strategies with too few trades are flagged. Then run it on demo for 2–4 weeks before real money.
-              </p>
-            </div>
+            <LeaderboardExample />
           </div>
         </section>
 
         {/* How it works */}
-        <section id="how-it-works" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
+        <section id="how-it-works" className="scroll-mt-24 pt-20">
           <SectionTitle eyebrow="How it works" title="From sign-up to your first bot in minutes" />
-          <ol className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="mt-10 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((s, i) => (
-              <li key={s.title} className="glass-panel p-5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-profit/40 font-mono text-sm text-profit">{i + 1}</div>
-                <h3 className="mt-4 font-semibold text-ivory">{s.title}</h3>
+              <li key={s.title} className="rounded-[18px] bg-panel p-5">
+                <div className="flex items-center gap-3">
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-full font-mono text-sm font-semibold ${i === 0 ? "bg-profit text-ink" : "bg-white/[0.06] text-profit"}`}>
+                    {i + 1}
+                  </span>
+                  <span className="h-px flex-1 bg-white/[0.08]" aria-hidden />
+                </div>
+                <h3 className="mt-4 font-bold text-ivory">{s.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
               </li>
             ))}
           </ol>
+          <div className="mt-3.5 grid gap-3.5 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="rounded-[18px] bg-panel p-6 sm:p-8">
+              <h3 className="text-lg font-bold text-ivory">Every order takes the same path</h3>
+              <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+                Whether a strategy, your script, a TradingView alert or your own tap sends it, an order goes through Risk Guard before it reaches your
+                broker. Real or demo money is decided by the broker account you connect.
+              </p>
+              <Button asChild className="mt-6 h-11 rounded-xl px-5 font-bold">
+                <Link href="/signup">
+                  Start on a demo account <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+            <FlowDiagram />
+          </div>
         </section>
 
         {/* Security */}
-        <section id="security" className="scroll-mt-20 border-y border-white/5 bg-white/[0.015]">
-          <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-            <SectionTitle eyebrow="Security" title="Built so that a mistake can't empty your account" />
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <SecurityItem icon={KeyRound} title="Trade-only access" body="Deriv tokens need only the trade scope. Nothing here can withdraw or transfer money." />
-              <SecurityItem icon={Lock} title="Encrypted keys" body="Broker tokens are encrypted with AES-256-GCM and never leave the server. MT5 bridge keys are stored as hashes." />
-              <SecurityItem icon={Code2} title="Sandboxed scripts" body="Scripts run in an isolated engine with no internet, file or key access, and strict time and memory limits." />
-              <SecurityItem icon={ShieldCheck} title="Your account, your data" body="Each account is fully separated. Passwords are salted hashes. Delete your account and data at any time." />
-            </div>
+        <section id="security" className="scroll-mt-24 pt-20">
+          <SectionTitle eyebrow="Security" title="Built so that a mistake can't empty your account" />
+          <div className="mt-10 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+            <SecurityItem icon={KeyRound} title="Trade-only access" body="Deriv tokens need only the trade scope. Nothing here can withdraw or transfer money." />
+            <SecurityItem icon={Lock} title="Encrypted keys" body="Broker tokens are encrypted with AES-256-GCM and never leave the server. MT5 bridge keys are stored as hashes." />
+            <SecurityItem icon={Code2} title="Sandboxed scripts" body="Scripts run in an isolated engine with no internet, file or key access, and strict time and memory limits." />
+            <SecurityItem icon={ShieldCheck} title="Your account, your data" body="Each account is fully separated. Passwords are salted hashes. Delete your account and data at any time." />
           </div>
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="mx-auto max-w-3xl scroll-mt-20 px-4 py-20 sm:px-6">
-          <SectionTitle eyebrow="FAQ" title="Questions people ask" />
-          <div className="mt-10 divide-y divide-white/5 rounded-2xl border border-white/10">
-            {FAQ.map((f) => (
-              <details key={f.q} className="group px-5 py-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-ivory">
-                  {f.q}
-                  <span className="text-muted-foreground transition-transform group-open:rotate-45">+</span>
-                </summary>
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
-              </details>
-            ))}
+        <section id="faq" className="scroll-mt-24 pt-20">
+          <div className="grid items-start gap-3.5 lg:grid-cols-[380px_minmax(0,1fr)]">
+            <div className="rounded-[18px] bg-panel p-6 sm:p-8 lg:sticky lg:top-24">
+              <SectionTitle eyebrow="FAQ" title="Questions people ask" align="left" />
+              <p className="mt-3 text-sm text-muted-foreground">Straight answers about money, risk and access. Read the Risk Disclosure before trading.</p>
+              <Button variant="outline" asChild className="mt-5 rounded-xl border-white/10 bg-black/20">
+                <Link href="/legal/risk">Risk Disclosure</Link>
+              </Button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {FAQ.map((f) => (
+                <details key={f.q} className="group rounded-[18px] bg-panel px-5 py-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ivory">
+                    {f.q}
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-transform group-open:rotate-45 group-open:bg-profit group-open:text-ink">
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
+                </details>
+              ))}
+            </div>
           </div>
         </section>
 
         {/* CTA */}
-        <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
-          <div className="glass-panel flex flex-col items-center gap-5 px-6 py-12 text-center">
-            <h2 className="text-2xl font-bold tracking-tight text-ivory sm:text-3xl">Start on a demo account today</h2>
-            <p className="max-w-xl text-muted-foreground">Practise with your broker&apos;s demo money until a strategy proves itself. Free while in beta.</p>
-            <Button size="lg" asChild>
-              <Link href="/signup">
-                Create a free account <ArrowRight />
-              </Link>
-            </Button>
+        <section className="py-20">
+          <div className="relative overflow-hidden rounded-[26px] bg-panel px-6 py-12 text-center sm:py-14">
+            <div aria-hidden className="pointer-events-none absolute inset-0 bg-engraving opacity-40 [mask-image:radial-gradient(ellipse_at_center,black_10%,transparent_70%)]" />
+            <div className="relative flex flex-col items-center gap-5">
+              <h2 className="text-2xl font-bold tracking-tight text-ivory sm:text-3xl">Start on a demo account today</h2>
+              <p className="max-w-xl text-muted-foreground">Practise with your broker&apos;s demo money until a strategy proves itself. Free while in beta.</p>
+              <Button size="lg" asChild className="h-12 rounded-xl px-6 text-[15px] font-bold">
+                <Link href="/signup">
+                  Create a free account <ArrowRight />
+                </Link>
+              </Button>
+            </div>
           </div>
         </section>
       </main>
@@ -244,20 +282,68 @@ export default function HomePage() {
   );
 }
 
+function Tile({ icon: Icon }: { icon: typeof Lock }) {
+  return (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-profit">
+      <Icon className="h-5 w-5" />
+    </span>
+  );
+}
+
+/** A leaderboard card like the Strategy Lab's, with clearly made-up example numbers. */
+function LeaderboardExample() {
+  const rows: Array<[string, string, string, string]> = [
+    ["EMA Trend Rider", "+6.2%", "4.1%", "54%"],
+    ["Channel breakout", "+3.8%", "5.6%", "47%"],
+    ["RSI reversal", "−1.4%", "7.9%", "51%"],
+  ];
+  return (
+    <div className="flex flex-col gap-2 rounded-[18px] bg-panel p-4">
+      <div className="flex items-center justify-between">
+        <span className="font-bold text-ivory">Leaderboard</span>
+        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] text-muted-foreground">Example</span>
+      </div>
+      {rows.map(([name, ret, dd, win], i) => (
+        <div key={name} className={`rounded-[14px] bg-black/25 p-3 ring-1 ${i === 0 ? "ring-profit/50" : "ring-transparent"}`}>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="font-mono text-muted-foreground">#{i + 1}</span>
+            <span className="font-bold text-ivory">{name}</span>
+          </div>
+          <dl className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+            {[
+              ["Unseen data", ret, ret.startsWith("+") ? "text-profit" : "text-loss"],
+              ["Max DD", dd, ""],
+              ["Win rate", win, ""],
+            ].map(([k, v, tone]) => (
+              <div key={k}>
+                <dt className="text-muted-foreground">{k}</dt>
+                <dd className={`font-mono text-sm text-ivory ${tone}`}>{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+      <p className="text-[11px] text-muted-foreground">Illustration of the layout, not real results.</p>
+    </div>
+  );
+}
+
 function SectionTitle({ eyebrow, title, align = "center" }: { eyebrow: string; title: string; align?: "center" | "left" }) {
   return (
     <div className={align === "center" ? "text-center" : undefined}>
-      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-profit">{eyebrow}</div>
-      <h2 className="mt-3 text-2xl font-bold tracking-tight text-ivory sm:text-3xl">{title}</h2>
+      <div className="inline-flex rounded-full bg-profit/10 px-3 py-1 text-xs font-semibold text-profit">{eyebrow}</div>
+      <h2 className="mt-3 text-2xl font-bold tracking-tight text-ivory sm:text-3xl text-balance">{title}</h2>
     </div>
   );
 }
 
 function SecurityItem({ icon: Icon, title, body }: { icon: typeof Lock; title: string; body: string }) {
   return (
-    <div className="p-1">
-      <Icon className="h-5 w-5 text-gold" />
-      <h3 className="mt-3 font-semibold text-ivory">{title}</h3>
+    <div className="rounded-[18px] bg-panel p-5">
+      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.06] text-gold">
+        <Icon className="h-5 w-5" />
+      </span>
+      <h3 className="mt-4 font-bold text-ivory">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{body}</p>
     </div>
   );
@@ -265,11 +351,11 @@ function SecurityItem({ icon: Icon, title, body }: { icon: typeof Lock; title: s
 
 /** How an order flows through binaryTrades — a diagram of the real architecture, not a screenshot. */
 function FlowDiagram() {
-  const box = "rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm";
+  const box = "rounded-xl bg-black/25 px-3 py-2 text-sm";
   return (
-    <div className="glass-panel p-5 sm:p-6" aria-label="How a trade flows through binaryTrades">
-      <div className="text-xs uppercase tracking-widest text-muted-foreground">Every order follows the same path</div>
-      <div className="mt-5 grid grid-cols-2 gap-2">
+    <div className="rounded-[18px] bg-panel p-4" aria-label="How a trade flows through binaryTrades">
+      <div className="text-xs text-muted-foreground">Order path</div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
         {["Strategy bots", "Your scripts", "TradingView alerts", "Manual buy / sell"].map((s) => (
           <div key={s} className={box}>
             {s}
@@ -277,7 +363,7 @@ function FlowDiagram() {
         ))}
       </div>
       <Arrow />
-      <div className="rounded-xl border border-profit/40 bg-profit/10 p-4">
+      <div className="rounded-xl bg-profit/10 p-4 ring-1 ring-profit/40">
         <div className="flex items-center gap-2 font-semibold text-profit">
           <ShieldCheck className="h-4 w-4" /> Risk Guard
         </div>
@@ -299,7 +385,6 @@ function FlowDiagram() {
           <div className="text-xs text-muted-foreground">Exness &amp; any MT5 broker</div>
         </div>
       </div>
-      <p className="mt-4 text-xs text-muted-foreground">Real or demo money is decided by the broker account you connect.</p>
     </div>
   );
 }
