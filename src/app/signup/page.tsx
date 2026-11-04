@@ -38,6 +38,7 @@ export default function SignupPage() {
 
   return (
     <AuthShell
+      mode="signup"
       title="Create your account"
       subtitle="Free while in beta. Start on a demo account — no card needed."
       footer={
@@ -82,7 +83,7 @@ export default function SignupPage() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={busy || !email || password.length < 10 || !accept}>
+        <Button type="submit" className="h-12 w-full rounded-xl text-[15px] font-bold" disabled={busy || !email || password.length < 10 || !accept}>
           {busy ? "Creating account…" : "Create account"}
         </Button>
       </form>

@@ -47,6 +47,7 @@ function LoginForm() {
 
   return (
     <AuthShell
+      mode="login"
       title="Sign in"
       subtitle="Welcome back."
       footer={
@@ -79,7 +80,7 @@ function LoginForm() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={busy || !password || (!passwordOnly && !email)}>
+        <Button type="submit" className="h-12 w-full rounded-xl text-[15px] font-bold" disabled={busy || !password || (!passwordOnly && !email)}>
           {busy ? "Signing in…" : "Sign in"}
         </Button>
         <button type="button" onClick={() => setPasswordOnly((v) => !v)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground">

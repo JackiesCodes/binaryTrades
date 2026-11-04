@@ -60,7 +60,7 @@ function ResetForm() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={busy || !token || password.length < 10 || password !== confirm}>
+        <Button type="submit" className="h-12 w-full rounded-xl text-[15px] font-bold" disabled={busy || !token || password.length < 10 || password !== confirm}>
           {busy ? "Saving…" : "Save new password"}
         </Button>
       </form>

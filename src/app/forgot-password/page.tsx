@@ -54,7 +54,7 @@ export default function ForgotPasswordPage() {
               {error}
             </p>
           )}
-          <Button type="submit" className="w-full" disabled={busy || !email}>
+          <Button type="submit" className="h-12 w-full rounded-xl text-[15px] font-bold" disabled={busy || !email}>
             {busy ? "Sending…" : "Send reset link"}
           </Button>
         </form>
