@@ -26,10 +26,14 @@ export function Workspace({
   /** Show the side panel above the main column on phones (e.g. a form that is the page's main job). */
   asideFirstOnPhone?: boolean;
 }) {
+  // When the side panel goes first on phones, the header strip still leads the page: it is drawn
+  // above everything there, and inside the main column on wide screens.
+  const stripFirst = asideFirstOnPhone && strip;
   return (
     <div className={cn("grid items-start gap-3.5", aside && "xl:grid-cols-[minmax(0,1fr)_340px]")}>
+      {stripFirst && <div className="min-w-0 xl:hidden">{strip}</div>}
       <div className={cn("flex min-w-0 flex-col gap-3.5", asideFirstOnPhone && "order-2 xl:order-1")}>
-        {strip}
+        {stripFirst ? <div className="hidden min-w-0 xl:block">{strip}</div> : strip}
         {children}
       </div>
       {aside && (
