@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Bell,
@@ -96,84 +96,87 @@ async function logout() {
 // ---------------------------------------------------------------------------
 // Icon rail (desktop)
 
-// The rail scrolls on short screens, and a scrolling box cuts off anything that sticks out of it,
-// so the hover labels are drawn on top of the page instead of inside the rail.
-type Tip = { label: string; x: number; y: number } | null;
-const RailTipContext = createContext<(tip: Tip) => void>(() => undefined);
-
-function useRailTip(label: string) {
-  const show = useContext(RailTipContext);
+// Hover labels are drawn on top of the page (not inside their button), so a scrolling or clipped
+// container — like the rail, which scrolls on short screens — can never cut them off.
+function useHoverTip(label: string, side: "right" | "below" = "right") {
+  const [pos, setPos] = useState<React.CSSProperties | null>(null);
+  const pathname = usePathname();
+  useEffect(() => setPos(null), [pathname]);
+  useEffect(() => {
+    if (!pos) return;
+    const close = () => setPos(null);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [pos]);
   const open = (e: React.SyntheticEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    show({ label, x: r.right + 10, y: r.top + r.height / 2 });
+    if (side === "right") setPos({ left: r.right + 10, top: r.top + r.height / 2, transform: "translateY(-50%)" });
+    // Below: centred under the item, or right-aligned with it near the screen's right edge.
+    else if (r.left + r.width / 2 > window.innerWidth - 110) setPos({ right: window.innerWidth - r.right, top: r.bottom + 8 });
+    else setPos({ left: r.left + r.width / 2, top: r.bottom + 8, transform: "translateX(-50%)" });
   };
-  const close = () => show(null);
-  return { onMouseEnter: open, onFocus: open, onMouseLeave: close, onBlur: close };
-}
-
-function RailTooltip({ tip }: { tip: Tip }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted || !tip) return null;
-  return createPortal(
-    <span
-      role="tooltip"
-      style={{ left: tip.x, top: tip.y }}
-      className="pointer-events-none fixed z-[60] -translate-y-1/2 whitespace-nowrap rounded-lg bg-panel px-2.5 py-1.5 text-xs font-medium text-ivory shadow-lg ring-1 ring-white/10"
-    >
-      {tip.label}
-    </span>,
-    document.body,
-  );
+  const close = () => setPos(null);
+  const tip = pos
+    ? createPortal(
+        <span
+          role="tooltip"
+          style={pos}
+          className="pointer-events-none fixed z-[60] whitespace-nowrap rounded-lg bg-panel px-2.5 py-1.5 text-xs font-medium text-ivory shadow-lg ring-1 ring-white/10"
+        >
+          {label}
+        </span>,
+        document.body,
+      )
+    : null;
+  return { props: { onMouseEnter: open, onFocus: open, onMouseLeave: close, onBlur: close }, tip };
 }
 
 function RailLink({ item }: { item: NavItem }) {
   const pathname = usePathname();
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
-  const tip = useRailTip(item.label);
+  const { props, tip } = useHoverTip(item.label);
   return (
     <Link
       href={item.href}
       aria-label={item.label}
       aria-current={active ? "page" : undefined}
-      {...tip}
+      {...props}
       className={cn(
         "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9",
         active ? "bg-profit text-ink" : "text-muted-foreground hover:bg-white/[0.06] hover:text-ivory",
       )}
     >
       <Icon className="h-[19px] w-[19px]" />
+      {tip}
     </Link>
   );
 }
 
 function SignOutButton() {
-  const tip = useRailTip("Sign out");
+  const { props, tip } = useHoverTip("Sign out");
   return (
     <button
       onClick={logout}
       aria-label="Sign out"
-      {...tip}
+      {...props}
       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-loss [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9"
     >
       <LogOut className="h-[19px] w-[19px]" />
+      {tip}
     </button>
   );
 }
 
 function Rail() {
   const admin = useIsAdmin();
-  const [tip, setTip] = useState<Tip>(null);
-  // A label must not hang in the air once the rail scrolls or the page changes.
-  const pathname = usePathname();
-  useEffect(() => setTip(null), [pathname]);
   return (
-    <RailTipContext.Provider value={setTip}>
-    <RailTooltip tip={tip} />
     <nav
       aria-label="Main"
-      onScroll={() => setTip(null)}
       className="no-scrollbar sticky top-[var(--header-h,64px)] hidden h-[calc(100dvh-var(--header-h,64px))] w-[76px] shrink-0 flex-col items-center gap-3 overflow-y-auto overflow-x-hidden py-3 lg:flex [@media(max-height:760px)]:gap-2 [@media(max-height:760px)]:py-2"
     >
       {NAV_GROUPS.map((group, i) => (
@@ -189,7 +192,6 @@ function Rail() {
         <SignOutButton />
       </div>
     </nav>
-    </RailTipContext.Provider>
   );
 }
 
@@ -251,9 +253,11 @@ function TopBar() {
 
 function EquityChip() {
   const { state, view } = useDashboard();
+  const { props, tip } = useHoverTip(`${view === "real" ? "Real" : "Demo"} equity · Brokers`, "below");
   if (!state?.brokers.length) return null;
   return (
-    <Link href="/dashboard/brokers" className={cn(chip, "px-3 font-mono tabular-nums")} title={`${view === "real" ? "Real" : "Demo"} equity`}>
+    <Link href="/dashboard/brokers" className={cn(chip, "px-3 font-mono tabular-nums")} {...props}>
+      {tip}
       <Wallet className="h-4 w-4 text-muted-foreground" />
       <span className="hidden sm:inline">{money(state.kpis[view].equity)}</span>
       <span className="sm:hidden">{money(Math.round(state.kpis[view].equity)).replace(/\.00$/, "")}</span>
@@ -264,6 +268,7 @@ function EquityChip() {
 /** Real or demo accounts: one switch that every page follows. */
 function BookSwitch() {
   const { state, view, setView } = useDashboard();
+  const { props: tipProps, tip } = useHoverTip(`Switch to ${view === "real" ? "demo" : "real"} accounts`, "below");
   const hasReal = state?.brokers.some((b) => !b.is_demo);
   const hasDemo = state?.brokers.some((b) => b.is_demo);
   if (!state || !(hasReal || hasDemo)) return null;
@@ -274,8 +279,9 @@ function BookSwitch() {
       onClick={() => both && setView(view === "real" ? "demo" : "real")}
       disabled={!both}
       className={cn(chip, "hidden lg:inline-flex", both && "hover:bg-white/[0.06]")}
-      title={both ? "Switch between real and demo accounts" : undefined}
+      {...(both ? tipProps : {})}
     >
+      {both && tip}
       <span
         className={cn(
           "rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wider",
@@ -294,12 +300,11 @@ function AlertsBell() {
   const { state } = useDashboard();
   const since = Date.now() - 24 * 3600_000;
   const recent = state?.logs.filter((l) => (l.level === "error" || l.level === "warn") && Date.parse(l.created_at) > since).length ?? 0;
+  const label = recent ? `Alerts & Logs: ${recent} warning${recent === 1 ? "" : "s"} in the last 24 hours` : "Alerts & Logs";
+  const { props, tip } = useHoverTip(label, "below");
   return (
-    <Link
-      href="/dashboard/logs"
-      aria-label={recent ? `Alerts & Logs: ${recent} warnings in the last 24 hours` : "Alerts & Logs"}
-      className={cn(chip, "relative hidden w-10 justify-center px-0 sm:inline-flex")}
-    >
+    <Link href="/dashboard/logs" aria-label={label} className={cn(chip, "relative hidden w-10 justify-center px-0 sm:inline-flex")} {...props}>
+      {tip}
       <Bell className="h-4 w-4 text-muted-foreground" />
       {recent > 0 && <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-gold" />}
     </Link>
@@ -317,8 +322,10 @@ function Profile() {
     .map((p: string) => p[0]!.toUpperCase())
     .join("");
   const ok = !error && Boolean(lastTick);
+  const { props, tip } = useHoverTip(`Account · ${ok ? "engine on" : "engine connecting"}`, "below");
   return (
-    <Link href="/dashboard/account" className="flex shrink-0 items-center gap-2.5 rounded-xl pl-1 lg:pr-1">
+    <Link href="/dashboard/account" aria-label={`Account: ${name}`} className="flex shrink-0 items-center gap-2.5 rounded-xl pl-1 lg:pr-1" {...props}>
+      {tip}
       <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-profit/15 text-sm font-semibold text-profit lg:h-10 lg:w-10">
         {initials || "·"}
         <span
@@ -398,7 +405,7 @@ function SearchBox() {
         />
       </label>
       {open && q.trim() && (
-        <div className="absolute inset-x-0 top-12 z-50 overflow-hidden rounded-xl bg-panel p-1 shadow-2xl ring-1 ring-white/10">
+        <div className="absolute left-0 top-12 z-50 w-[360px] min-w-full max-w-[calc(100vw-24px)] overflow-hidden rounded-xl bg-panel p-1 shadow-2xl ring-1 ring-white/10">
           {results.length ? (
             results.map((r, i) => {
               const Icon = r.icon;
@@ -409,9 +416,9 @@ function SearchBox() {
                   onClick={() => go(r.href)}
                   className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm", i === hi && "bg-white/[0.06]")}
                 >
-                  <Icon className="h-4 w-4 text-profit" />
+                  <Icon className="h-4 w-4 shrink-0 text-profit" />
                   <span className="min-w-0 flex-1 truncate text-ivory">{r.label}</span>
-                  <span className="truncate text-xs text-muted-foreground">{r.sub}</span>
+                  <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">{r.sub}</span>
                 </button>
               );
             })
