@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bell,
   Bot,
@@ -95,34 +96,85 @@ async function logout() {
 // ---------------------------------------------------------------------------
 // Icon rail (desktop)
 
+// The rail scrolls on short screens, and a scrolling box cuts off anything that sticks out of it,
+// so the hover labels are drawn on top of the page instead of inside the rail.
+type Tip = { label: string; x: number; y: number } | null;
+const RailTipContext = createContext<(tip: Tip) => void>(() => undefined);
+
+function useRailTip(label: string) {
+  const show = useContext(RailTipContext);
+  const open = (e: React.SyntheticEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    show({ label, x: r.right + 10, y: r.top + r.height / 2 });
+  };
+  const close = () => show(null);
+  return { onMouseEnter: open, onFocus: open, onMouseLeave: close, onBlur: close };
+}
+
+function RailTooltip({ tip }: { tip: Tip }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted || !tip) return null;
+  return createPortal(
+    <span
+      role="tooltip"
+      style={{ left: tip.x, top: tip.y }}
+      className="pointer-events-none fixed z-[60] -translate-y-1/2 whitespace-nowrap rounded-lg bg-panel px-2.5 py-1.5 text-xs font-medium text-ivory shadow-lg ring-1 ring-white/10"
+    >
+      {tip.label}
+    </span>,
+    document.body,
+  );
+}
+
 function RailLink({ item }: { item: NavItem }) {
   const pathname = usePathname();
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
+  const tip = useRailTip(item.label);
   return (
     <Link
       href={item.href}
       aria-label={item.label}
       aria-current={active ? "page" : undefined}
+      {...tip}
       className={cn(
-        "group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9",
+        "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9",
         active ? "bg-profit text-ink" : "text-muted-foreground hover:bg-white/[0.06] hover:text-ivory",
       )}
     >
       <Icon className="h-[19px] w-[19px]" />
-      <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-lg bg-panel px-2.5 py-1.5 text-xs font-medium text-ivory opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-        {item.label}
-      </span>
     </Link>
+  );
+}
+
+function SignOutButton() {
+  const tip = useRailTip("Sign out");
+  return (
+    <button
+      onClick={logout}
+      aria-label="Sign out"
+      {...tip}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-loss [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9"
+    >
+      <LogOut className="h-[19px] w-[19px]" />
+    </button>
   );
 }
 
 function Rail() {
   const admin = useIsAdmin();
+  const [tip, setTip] = useState<Tip>(null);
+  // A label must not hang in the air once the rail scrolls or the page changes.
+  const pathname = usePathname();
+  useEffect(() => setTip(null), [pathname]);
   return (
+    <RailTipContext.Provider value={setTip}>
+    <RailTooltip tip={tip} />
     <nav
       aria-label="Main"
-      className="no-scrollbar sticky top-[var(--header-h,64px)] hidden h-[calc(100dvh-var(--header-h,64px))] w-[76px] shrink-0 flex-col items-center gap-3 overflow-y-auto py-3 lg:flex [@media(max-height:760px)]:gap-2 [@media(max-height:760px)]:py-2"
+      onScroll={() => setTip(null)}
+      className="no-scrollbar sticky top-[var(--header-h,64px)] hidden h-[calc(100dvh-var(--header-h,64px))] w-[76px] shrink-0 flex-col items-center gap-3 overflow-y-auto overflow-x-hidden py-3 lg:flex [@media(max-height:760px)]:gap-2 [@media(max-height:760px)]:py-2"
     >
       {NAV_GROUPS.map((group, i) => (
         <div key={i} className="flex shrink-0 flex-col gap-1 rounded-[26px] bg-panel p-1.5">
@@ -134,16 +186,10 @@ function Rail() {
       <div className="mt-auto flex shrink-0 flex-col gap-1 rounded-[26px] bg-panel p-1.5">
         {admin && <RailLink item={ADMIN_NAV} />}
         <RailLink item={ACCOUNT_NAV} />
-        <button
-          onClick={logout}
-          aria-label="Sign out"
-          title="Sign out"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-loss [@media(max-height:760px)]:h-9 [@media(max-height:760px)]:w-9"
-        >
-          <LogOut className="h-[19px] w-[19px]" />
-        </button>
+        <SignOutButton />
       </div>
     </nav>
+    </RailTipContext.Provider>
   );
 }
 
