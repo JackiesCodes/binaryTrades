@@ -171,7 +171,7 @@ export function Switcher<T extends string>({
             aria-selected={on}
             onClick={() => onChange(o.value)}
             className={cn(
-              "truncate rounded-[9px] px-2 py-2 font-medium transition-colors",
+              "truncate rounded-[9px] px-2 py-2 font-medium transition-colors max-[359px]:px-1 max-[359px]:text-xs",
               on
                 ? o.tone === "gold"
                   ? "bg-gold text-ink"
@@ -199,9 +199,11 @@ export function RangePills<T extends string>({ value, options, onChange }: { val
         <button
           key={o}
           type="button"
+          aria-pressed={o === value}
           onClick={() => onChange(o)}
           className={cn(
-            "rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+            // Taller on phones and tablets so they're easy to tap.
+            "rounded-full border px-2.5 py-0.5 text-[11px] font-medium max-lg:min-h-[30px] max-lg:px-3",
             o === value ? "border-profit bg-profit text-ink" : "border-white/10 text-muted-foreground hover:text-ivory",
           )}
         >

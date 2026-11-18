@@ -61,7 +61,7 @@ export default function SignupPage() {
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required aria-invalid={tooShort} />
         </Field>
         <label className="flex items-start gap-2.5 text-sm text-muted-foreground">
-          <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#85BB65]" />
+          <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[#85BB65]" />
           <span>
             I agree to the{" "}
             <Link href="/legal/terms" target="_blank" className="text-foreground underline">

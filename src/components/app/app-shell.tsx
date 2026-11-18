@@ -349,6 +349,15 @@ function SearchBox() {
   const router = useRouter();
   const pathname = usePathname();
   const [q, setQ] = useState("");
+  // The full placeholder only where the box is wide enough for it (it was cut off on tablets).
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const set = () => setWide(mq.matches);
+    set();
+    mq.addEventListener("change", set);
+    return () => mq.removeEventListener("change", set);
+  }, []);
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const box = useRef<HTMLDivElement>(null);
@@ -399,7 +408,7 @@ function SearchBox() {
             else if (e.key === "Enter" && results[hi]) go(results[hi]!.href);
             else if (e.key === "Escape") setOpen(false);
           }}
-          placeholder="Search bots and pages"
+          placeholder={wide ? "Search bots and pages" : "Search"}
           aria-label="Search bots and pages"
           className="min-w-0 flex-1 bg-transparent text-ivory placeholder:text-muted-foreground focus:outline-none"
         />

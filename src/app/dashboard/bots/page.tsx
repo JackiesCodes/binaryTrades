@@ -143,7 +143,7 @@ function BotRow({ bot }: { bot: Bot }) {
             </div>
           </div>
         </div>
-        <dl className="mt-3 grid grid-cols-4 gap-x-4 text-xs sm:w-fit sm:gap-x-7">
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs min-[360px]:grid-cols-4 sm:w-fit sm:gap-x-7">
           {[
             ["Market", bot.symbol],
             ["Timeframe", timeframeLabel(bot.timeframe)],

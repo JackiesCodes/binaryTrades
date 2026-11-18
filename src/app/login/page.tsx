@@ -83,7 +83,7 @@ function LoginForm() {
         <Button type="submit" className="h-12 w-full rounded-xl text-[15px] font-bold" disabled={busy || !password || (!passwordOnly && !email)}>
           {busy ? "Signing in…" : "Sign in"}
         </Button>
-        <button type="button" onClick={() => setPasswordOnly((v) => !v)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground">
+        <button type="button" onClick={() => setPasswordOnly((v) => !v)} className="w-full py-2 text-center text-xs text-muted-foreground hover:text-foreground">
           {passwordOnly ? "Sign in with email instead" : "Original account owner without an email yet? Sign in with your password only"}
         </button>
       </form>

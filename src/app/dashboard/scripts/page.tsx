@@ -613,8 +613,8 @@ function DeployPanel({
           {timeframeLabel(timeframe)} candles, the market and timeframe from the Test tab. Stops come from your script or the stop setting there.
           If the script has onAlert, find its TradingView webhook on the bot&apos;s page.
         </p>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={startNow} onChange={(e) => setStartNow(e.target.checked)} className="h-4 w-4 accent-[#85BB65]" />
+        <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm">
+          <input type="checkbox" checked={startNow} onChange={(e) => setStartNow(e.target.checked)} className="h-5 w-5 accent-[#85BB65]" />
           Start trading right away
         </label>
         {startNow && killOn && <p className="text-xs text-amber-300">The kill switch is on, so the bot will be created paused.</p>}
