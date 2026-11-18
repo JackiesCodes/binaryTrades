@@ -514,6 +514,8 @@ function TabBar() {
           })}
           <button
             onClick={() => setMoreOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
             className={cn("flex flex-col items-center gap-1 text-[11px] font-medium", moreActive ? "text-profit" : "text-muted-foreground")}
           >
             {tab(moreActive, MoreHorizontal, "More")}
@@ -522,7 +524,7 @@ function TabBar() {
       </nav>
 
       <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
-        <DialogContent className="lg:hidden">
+        <DialogContent className="lg:hidden [@media(max-height:500px)]:gap-3 [@media(max-height:500px)]:p-4">
           <DialogHeader>
             <DialogTitle>More</DialogTitle>
           </DialogHeader>
@@ -531,9 +533,10 @@ function TabBar() {
               {(["demo", "real"] as const).map((b) => (
                 <button
                   key={b}
+                  aria-pressed={view === b}
                   onClick={() => setView(b)}
                   className={cn(
-                    "rounded-lg py-2",
+                    "min-h-11 rounded-lg py-2",
                     view === b ? (b === "real" ? "bg-gold text-ink" : "bg-profit text-ink") : "text-muted-foreground",
                   )}
                 >
@@ -542,19 +545,31 @@ function TabBar() {
               ))}
             </div>
           )}
-          <div className="divide-y divide-white/5 overflow-hidden rounded-xl bg-white/[0.03]">
-            {more.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className={cn("flex items-center gap-3 px-4 py-3.5 text-sm", isActive(pathname, href) ? "text-profit" : "text-foreground")}
-              >
-                <Icon className="h-4 w-4 text-muted-foreground" />
-                {label}
-              </Link>
-            ))}
-            <button onClick={logout} className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm text-loss">
-              <LogOut className="h-4 w-4" /> Sign out
+          {/* One column; two on short screens (a phone held sideways) so Sign out never hides below the edge. */}
+          <div className="grid gap-px overflow-hidden rounded-xl bg-white/5 [@media(max-height:500px)]:grid-cols-2">
+            {more.map(({ href, label, icon: Icon }) => {
+              const active = isActive(pathname, href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn("flex items-center gap-3 bg-[#151E1A] px-4 py-3.5 text-sm", active ? "text-profit" : "text-foreground")}
+                >
+                  <Icon className={cn("h-4 w-4 shrink-0", active ? "text-profit" : "text-muted-foreground")} />
+                  {label}
+                </Link>
+              );
+            })}
+            <button
+              onClick={logout}
+              className={cn(
+                "flex w-full items-center gap-3 bg-[#151E1A] px-4 py-3.5 text-left text-sm text-loss",
+                // In two columns, fill the last row instead of leaving an empty cell beside it.
+                more.length % 2 === 0 && "[@media(max-height:500px)]:col-span-2",
+              )}
+            >
+              <LogOut className="h-4 w-4 shrink-0" /> Sign out
             </button>
           </div>
         </DialogContent>
