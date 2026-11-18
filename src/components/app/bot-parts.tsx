@@ -10,7 +10,7 @@ import { CopyRow, Field, selectClass } from "@/components/app/widgets";
 import { Switcher } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/client";
+import { api, brokerOptionLabel } from "@/lib/client";
 import { STRATEGIES, defaultParams, getStrategy } from "@/lib/strategies";
 import { DATA_SYMBOLS, TIMEFRAMES, guessDataSymbol } from "@/lib/trading/symbols";
 import type { PublicBroker } from "@/lib/trading/state";
@@ -204,13 +204,13 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
         <select className={selectClass} value={brokerId} onChange={(e) => setBrokerId(e.target.value)}>
           {brokers.map((b) => (
             <option key={b.id} value={b.id}>
-              {b.label} · {b.kind === "mt5" ? "MT5" : "Deriv"} · {b.is_demo ? "Demo" : "Real"}
+              {brokerOptionLabel(b, true)}
             </option>
           ))}
         </select>
       </Field>
 
-      <div className={cn("grid gap-4", isMt5 ? "grid-cols-1" : "grid-cols-2")}>
+      <div className="grid gap-4">
         {isMt5 ? (
           <>
             <Field label="MT5 symbol" hint="Exactly as in Market Watch, e.g. EURUSDm on Exness.">
@@ -268,7 +268,7 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
 
       {source === "builtin" && (
         <div className="space-y-3 rounded-[14px] bg-black/25 p-3">
-          <Field label="Strategy" hint={def.description}>
+          <Field label="Strategy" hint={`${def.style}. ${def.description}`}>
             <select
               className={selectClass}
               value={strategyId}
@@ -279,7 +279,7 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
             >
               {STRATEGIES.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} — {s.style}
+                  {s.name}
                 </option>
               ))}
             </select>

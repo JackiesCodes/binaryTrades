@@ -12,7 +12,7 @@ import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, 
 import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, money, pct, pnlClass, price } from "@/lib/client";
+import { api, brokerOptionLabel, money, pct, pnlClass, price } from "@/lib/client";
 import type { BacktestResult } from "@/lib/strategies/backtest";
 import { SCRIPT_REFERENCE, SCRIPT_TEMPLATES, looksLikePine } from "@/lib/strategies/script-templates";
 import { DATA_SYMBOLS, TIMEFRAMES, timeframeLabel } from "@/lib/trading/symbols";
@@ -198,7 +198,7 @@ function ScriptStudio() {
             <>
               <FieldBox>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Market">
+                  <Field label="Market" className="col-span-2">
                     <select className={selectClass} value={dataSymbol} onChange={(e) => setDataSymbol(e.target.value)}>
                       {DATA_SYMBOLS.map((d) => (
                         <option key={d.value} value={d.value}>
@@ -299,7 +299,7 @@ function ScriptStudio() {
           {!editing && (
             <select
               aria-label="Start from a template"
-              className={cn(selectClass, "h-9 w-auto max-w-[15rem] text-sm")}
+              className={cn(selectClass, "h-9 w-auto max-w-full text-sm")}
               value={template?.id ?? ""}
               onChange={(e) => loadTemplate(e.target.value)}
             >
@@ -563,7 +563,7 @@ function DeployPanel({
             <select className={selectClass} value={brokerId} onChange={(e) => setBrokerId(e.target.value)}>
               {brokers.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.label} · {b.is_demo ? "Demo" : "Real"}
+                  {brokerOptionLabel(b)}
                 </option>
               ))}
             </select>

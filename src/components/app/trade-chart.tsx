@@ -59,12 +59,15 @@ export function TradeChart({
         setInfo({ tf: data.timeframe, count: data.candles.length });
         if (!data.candles.length) return;
 
+        const short = height < 200;
         const chart = createChart(box.current, {
           height,
           width: box.current.clientWidth,
           layout: { background: { color: "transparent" }, textColor: COLORS.text, fontFamily: "inherit" },
           grid: { vertLines: { color: COLORS.grid }, horzLines: { color: COLORS.grid } },
-          rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+          // Short charts get slimmer margins; with the default ones plus marker text, a chart this
+          // small runs out of room and draws its price axis upside down.
+          rightPriceScale: { borderColor: "rgba(255,255,255,0.1)", ...(short ? { scaleMargins: { top: 0.12, bottom: 0.12 } } : {}) },
           timeScale: { borderColor: "rgba(255,255,255,0.1)", timeVisible: true, secondsVisible: false },
           crosshair: { mode: CrosshairMode.Normal },
         });
@@ -86,7 +89,7 @@ export function TradeChart({
         const snap = (t: number) => Math.min(last, Math.max(first, Math.floor(t / tf) * tf)) as T;
         const markers: import("lightweight-charts").SeriesMarker<T>[] = [];
         // With many trades, labels would overlap: shapes only (tap a trade in Trades for details).
-        const labels = trades.length <= 3;
+        const labels = trades.length <= 3 && !short;
         for (const t of trades) {
           if (t.status === "rejected") continue;
           const buy = t.side === "buy";
@@ -180,7 +183,20 @@ export function TradeDialog({ trade, botName, onClose }: { trade: Trade | null; 
   );
 }
 
+/** Chart height for the trade dialog: smaller on short screens so the trade's details stay in view. */
+function useDialogChartHeight() {
+  const [height, setHeight] = useState(300);
+  useEffect(() => {
+    const pick = () => setHeight(window.innerHeight < 500 ? 160 : window.innerHeight < 720 ? 240 : 300);
+    pick();
+    window.addEventListener("resize", pick);
+    return () => window.removeEventListener("resize", pick);
+  }, []);
+  return height;
+}
+
 function TradeDetails({ trade, botName }: { trade: Trade; botName?: string }) {
+  const chartHeight = useDialogChartHeight();
   const symbol = trade.data_symbol ?? (/^(frx|cry|R_|1HZ|BOOM|CRASH)/.test(trade.symbol) ? trade.symbol : null);
   const { from, to } = tradeWindow(trade);
   const open = trade.status === "open" || trade.status === "pending";
@@ -204,7 +220,7 @@ function TradeDetails({ trade, botName }: { trade: Trade; botName?: string }) {
         </DialogTitle>
       </DialogHeader>
       {symbol ? (
-        <TradeChart symbol={symbol} from={from} to={to} trades={[trade]} height={300} />
+        <TradeChart symbol={symbol} from={from} to={to} trades={[trade]} height={chartHeight} />
       ) : (
         <p className="py-6 text-center text-sm text-muted-foreground">No chart for this market: binaryTrades only has Deriv price data for it.</p>
       )}

@@ -404,9 +404,19 @@ export function PositionsTable({
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
+export function Field({
+  label,
+  hint,
+  children,
+  className,
+}: {
+  label: string;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <label className="block space-y-1.5">
+    <label className={cn("block space-y-1.5", className)}>
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {children}
       {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}

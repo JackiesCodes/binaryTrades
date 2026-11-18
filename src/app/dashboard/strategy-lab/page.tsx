@@ -148,7 +148,7 @@ export default function StrategyLabPage() {
           />
           <FieldBox>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Market">
+              <Field label="Market" className="col-span-2">
                 <select className={selectClass} value={dataSymbol} onChange={(e) => setDataSymbol(e.target.value)}>
                   {DATA_SYMBOLS.map((d) => (
                     <option key={d.value} value={d.value}>
@@ -169,7 +169,7 @@ export default function StrategyLabPage() {
               <Field label="Risk per trade (%)">
                 <Input type="number" step="0.1" value={risk} onChange={(e) => setRisk(Number(e.target.value))} />
               </Field>
-              <Field label="Cost / trade (%)">
+              <Field label="Cost / trade (%)" className="col-span-2">
                 <Input type="number" step="0.005" value={cost} onChange={(e) => setCost(Number(e.target.value))} />
               </Field>
             </div>

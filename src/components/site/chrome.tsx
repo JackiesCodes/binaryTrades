@@ -15,8 +15,8 @@ const SITE_LINKS = [
 export function SiteHeader({ minimal = false }: { minimal?: boolean }) {
   return (
     <header className="sticky top-0 z-30 bg-ink/85 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-[1240px] items-center justify-between gap-4 px-3 sm:px-5">
-        <Link href="/" className="flex items-center gap-2 text-lg" aria-label="binaryTrades home">
+      <div className="mx-auto flex h-16 max-w-[1240px] items-center justify-between gap-4 px-3 max-[359px]:gap-2 sm:px-5">
+        <Link href="/" className="flex shrink-0 items-center gap-2 text-lg max-[359px]:gap-1.5 max-[359px]:text-base" aria-label="binaryTrades home">
           <BrandMark />
           <Wordmark />
         </Link>
@@ -33,11 +33,11 @@ export function SiteHeader({ minimal = false }: { minimal?: boolean }) {
                 </Link>
               ))}
             </nav>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" asChild className="h-10 rounded-xl bg-panel px-4 hover:bg-white/[0.06]">
+            <div className="flex items-center gap-2 max-[359px]:gap-1.5">
+              <Button variant="ghost" size="sm" asChild className="h-10 rounded-xl bg-panel px-4 hover:bg-white/[0.06] max-[359px]:px-3">
                 <Link href="/login">Sign in</Link>
               </Button>
-              <Button size="sm" asChild className="h-10 rounded-xl px-4 font-bold">
+              <Button size="sm" asChild className="h-10 rounded-xl px-4 font-bold max-[359px]:px-3">
                 <Link href="/signup">Get started</Link>
               </Button>
             </div>

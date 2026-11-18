@@ -63,6 +63,21 @@ export async function api<T = unknown>(path: string, method = "GET", body?: unkn
   return data as T;
 }
 
+/**
+ * A broker account's name for dropdowns: its label, plus the platform and Demo/Real only when the
+ * label doesn't already say so (e.g. "Deriv Demo DOT92728223", not "… · Deriv · Demo"). Demo/Real
+ * always comes from the account itself, never from its name.
+ */
+export function brokerOptionLabel(b: { label: string; kind: string; is_demo: boolean }, withKind = false): string {
+  const name = b.label.toLowerCase();
+  const parts = [b.label];
+  const kind = b.kind === "mt5" ? "MT5" : "Deriv";
+  if (withKind && !name.includes(kind.toLowerCase())) parts.push(kind);
+  const book = b.is_demo ? "Demo" : "Real";
+  if (!name.includes(book.toLowerCase())) parts.push(book);
+  return parts.join(" · ");
+}
+
 export function money(value: number | null | undefined, currency = "USD", signed = false): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const symbol = currency === "USD" ? "$" : `${currency} `;

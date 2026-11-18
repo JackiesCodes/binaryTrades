@@ -121,6 +121,7 @@ export default function AdminPage() {
             <label className="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-3 text-muted-foreground focus-within:border-profit/50">
               <Search className="h-4 w-4 shrink-0" />
               <input
+                size={1}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search email or name"

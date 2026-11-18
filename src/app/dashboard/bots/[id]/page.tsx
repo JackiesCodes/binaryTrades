@@ -12,7 +12,7 @@ import { EmptyState, PageSkeleton, Panel, selectClass } from "@/components/app/w
 import { AsideTitle, FieldBox, KV, PositionCard, RangePills, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { money, pnlClass, price, timeAgo } from "@/lib/client";
+import { brokerOptionLabel, money, pnlClass, price, timeAgo } from "@/lib/client";
 import { getStrategy } from "@/lib/strategies";
 import { DATA_SYMBOLS, timeframeLabel } from "@/lib/trading/symbols";
 import type { Bot, Trade } from "@/lib/trading/types";
@@ -144,7 +144,7 @@ function BotView({ bot }: { bot: Bot }) {
                     {!bot.broker_account_id && <option value="">Choose account…</option>}
                     {state.brokers.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.label} · {b.is_demo ? "Demo" : "Real"}
+                        {brokerOptionLabel(b)}
                       </option>
                     ))}
                   </select>
