@@ -46,6 +46,31 @@ const MESSAGES: Record<string, string> = {
 
 export class ApiError extends Error {}
 
+/** Names and allowed values for fields the API can reject, so "Invalid request" says what to fix. */
+const FIELD_HINTS: Record<string, string> = {
+  risk_percent: "Risk per trade (%): between 0.1 and 5. For a dollar amount, use Fixed $",
+  risk_amount: "Fixed risk per trade: an amount above 0",
+  deriv_multiplier: "Deriv multiplier: a whole number of at least 1",
+  timeframe: "Timeframe",
+  data_symbol: "Market",
+  symbol: "Symbol",
+  name: "Bot name: 1–60 characters",
+  params: "Script settings: numbers only",
+  strategy_params: "Strategy settings: numbers only",
+  script: "Script: up to 50,000 characters",
+  code: "Script: up to 50,000 characters",
+  broker_account_id: "Broker account",
+  cost_percent: "Cost per trade (%): between 0 and 1",
+  hours: "Time limit: 1–72 hours",
+  target_multiple: "Target: between ×1.1 and ×10",
+};
+
+export function invalidFieldsMessage(fields: Record<string, string[]>): string {
+  const names = Object.keys(fields);
+  if (!names.length) return "Some values weren't accepted. Check the form and try again.";
+  return `Please check: ${names.map((f) => FIELD_HINTS[f] ?? `${f} (${fields[f]?.[0] ?? "invalid"})`).join("; ")}.`;
+}
+
 export async function api<T = unknown>(path: string, method = "GET", body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -63,6 +88,7 @@ export async function api<T = unknown>(path: string, method = "GET", body?: unkn
     const code = (data as { error?: string }).error ?? `HTTP_${res.status}`;
     const details = (data as { details?: unknown }).details;
     if (code === "SCRIPT_ERROR" && typeof details === "string") throw new ApiError(details);
+    if (code === "INVALID_REQUEST" && details && typeof details === "object") throw new ApiError(invalidFieldsMessage(details as Record<string, string[]>));
     const extra = typeof details === "string" ? ` (${details})` : "";
     throw new ApiError((MESSAGES[code] ?? (data as { reason?: string }).reason ?? code) + extra);
   }

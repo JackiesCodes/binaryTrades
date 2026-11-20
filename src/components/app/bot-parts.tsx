@@ -309,7 +309,7 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
       </div>
 
       {error && <p className="text-sm text-loss">{error}</p>}
-      <Button type="submit" className="w-full" disabled={busy}>
+      <Button type="submit" className="w-full" disabled={busy || Boolean(riskError(risk))}>
         {busy ? "Creating…" : broker?.is_demo === false ? "Create bot on real account" : "Create bot"}
       </Button>
     </form>
@@ -373,6 +373,18 @@ export function riskValueOf(bot?: Pick<Bot, "risk_percent" | "risk_amount">): Ri
     : { mode: "percent", percent: bot?.risk_percent ?? 1, amount: 25 };
 }
 
+/** What's wrong with a RiskValue, or null when it can be saved. */
+export function riskError(r: RiskValue): string | null {
+  if (r.mode === "percent") {
+    if (!Number.isFinite(r.percent) || r.percent < 0.1 || r.percent > 5) {
+      return "Use 0.1–5% of the account. For a dollar amount like $25, switch to Fixed.";
+    }
+    return null;
+  }
+  if (!Number.isFinite(r.amount) || r.amount <= 0) return "Enter an amount above 0, e.g. 25.";
+  return null;
+}
+
 /** The API fields for a RiskValue. */
 export function riskBody(r: RiskValue) {
   return { risk_percent: r.percent, risk_amount: r.mode === "amount" ? r.amount : null };
@@ -428,11 +440,17 @@ export function RiskField({ value, onChange, currency = "USD" }: { value: RiskVa
           onChange={(e) => onChange({ ...value, amount: Number(e.target.value) })}
         />
       )}
+      {riskError(value) ? (
+        <span role="alert" className="text-[11px] text-loss">
+          {riskError(value)}
+        </span>
+      ) : (
       <span className="text-[11px] text-muted-foreground">
         {value.mode === "percent"
           ? "Loss if the stop is hit, as % of equity. 0.5–1% is sensible; hard-capped at 5%."
           : `Each trade loses about ${symbol}${value.amount || 0} if its stop is hit (never more than 5% of the account).`}
       </span>
+      )}
     </div>
   );
 }

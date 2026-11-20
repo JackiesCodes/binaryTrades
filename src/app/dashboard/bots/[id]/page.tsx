@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 
-import { RiskField, WebhookSetup, botKind, botStats, riskBody, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
+import { RiskField, WebhookSetup, botKind, botStats, riskBody, riskError, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
 import { ChallengePanel } from "@/components/app/challenge";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
@@ -170,7 +170,7 @@ function BotView({ bot }: { bot: Bot }) {
                   ["Price feed", bot.price_source === "broker" ? "MT5 broker" : "Deriv"],
                 ]}
               />
-              <Button onClick={save} disabled={busy || !dirty} className="h-12 w-full text-[15px] font-bold">
+              <Button onClick={save} disabled={busy || !dirty || Boolean(riskError(risk))} className="h-12 w-full text-[15px] font-bold">
                 Save settings
               </Button>
               {bot.strategy?.id === "script" && (

@@ -8,7 +8,7 @@ import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, Tr
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 import { EquityChart } from "@/components/app/equity-chart";
-import { RiskField, riskBody, riskValueOf, type RiskValue } from "@/components/app/bot-parts";
+import { RiskField, riskBody, riskError, riskValueOf, type RiskValue } from "@/components/app/bot-parts";
 import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
 import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
@@ -615,7 +615,7 @@ function DeployPanel({
           Start trading right away
         </label>
         {startNow && killOn && <p className="text-xs text-amber-300">The kill switch is on, so the bot will be created paused.</p>}
-        <Button onClick={deploy} disabled={disabled || !brokerId || (isMt5 && !mt5Symbol.trim())} className="h-12 w-full text-[15px] font-bold">
+        <Button onClick={deploy} disabled={disabled || !brokerId || (isMt5 && !mt5Symbol.trim()) || Boolean(riskError(risk))} className="h-12 w-full text-[15px] font-bold">
           <Rocket /> {busy ? "Creating…" : startNow ? "Create and start bot" : "Create bot (paused)"}
         </Button>
     </div>
