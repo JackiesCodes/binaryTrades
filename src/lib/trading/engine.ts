@@ -653,7 +653,7 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
     const atr = atrSeries(candles).at(-1)!;
     // The script's own stop / target, when it set them on the correct side of the price.
     const own = resolveLevels(want as 1 | -1, last.close, levels?.get(candles.length - 1));
-    await processSignal({
+    const sent = await processSignal({
       bot,
       source: "builtin",
       action: want === 1 ? "buy" : "sell",
@@ -664,6 +664,8 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
       stopDistance: atr * (params.atr_mult ?? 2),
       rr: params.rr ?? 0,
     });
+    // A refused order (broker, Risk Guard, connection) must not look like a trade.
+    if (sent.status !== "accepted") return `${want === 1 ? "buy" : "sell"} refused: ${sent.reason ?? sent.status}`;
     return want === 1 ? "buy" : "sell";
   }
   return "hold";
@@ -703,6 +705,20 @@ async function doTick(): Promise<TickReport> {
 }
 
 /** One user's share of the engine tick. Bot names in the report are prefixed with the user id. */
+/**
+ * Remembers the engine's latest verdict on a bot so its page can say why it isn't trading.
+ * Written when the verdict changes, and at least every 5 minutes so "Last check" stays current.
+ */
+async function recordCheck(bot: Bot, result: string): Promise<void> {
+  const prev = bot.last_check;
+  if (prev && prev.result === result && Date.now() - Date.parse(prev.at) < 5 * 60_000) return;
+  try {
+    await forUser(bot.user_id).bots.update(bot.id, { last_check: { at: nowIso(), result: result.slice(0, 300) } });
+  } catch {
+    // Older databases without the column: the check is informational, never block trading on it.
+  }
+}
+
 export async function tickUser(userId: string): Promise<Record<string, string>> {
   const store = forUser(userId);
   const bots: Record<string, string> = {};
@@ -735,7 +751,14 @@ export async function tickUser(userId: string): Promise<Record<string, string>> 
         bots[key] = `error: ${(error as Error).message}`;
         await log("error", `${bot.name}: ${(error as Error).message}`, { user_id: userId, bot_id: bot.id });
       }
+      await recordCheck(bot, bots[key]!);
     }
+  }
+
+  for (const bot of await store.bots.all({ eq: { status: "running", source: "tradingview" } })) {
+    const result = settings.kill_switch ? "kill switch on" : "waiting for TradingView alerts";
+    bots[`${userId.slice(0, 8)}:${bot.name}`] = result;
+    await recordCheck(bot, result);
   }
 
   for (const book of ["real", "demo"] as const) {

@@ -335,6 +335,14 @@ alter table bots add column if not exists challenge jsonb;
 alter table bots add column if not exists risk_amount numeric;
 `,
   },
+  {
+    file: "0009_bot_last_check.sql",
+    sql: `-- 0009: bots remember the engine's latest verdict ("waiting for next bar", "rejected: …"),
+-- so a running bot that isn't trading shows why. Idempotent: safe to run more than once.
+
+alter table bots add column if not exists last_check jsonb;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -352,4 +360,6 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'challenge') as done",
   "0008_fixed_risk.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'risk_amount') as done",
+  "0009_bot_last_check.sql":
+    "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'last_check') as done",
 };

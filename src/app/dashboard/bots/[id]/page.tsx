@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 
-import { RiskField, WebhookSetup, botKind, botStats, riskBody, riskError, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
+import { RiskField, WebhookSetup, botKind, botStats, describeCheck, riskBody, riskError, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
 import { ChallengePanel } from "@/components/app/challenge";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
@@ -17,6 +17,7 @@ import { brokerOptionLabel, money, pnlClass, price, timeAgo } from "@/lib/client
 import { getStrategy } from "@/lib/strategies";
 import { DATA_SYMBOLS, timeframeLabel } from "@/lib/trading/symbols";
 import type { Bot, Trade } from "@/lib/trading/types";
+import { cn } from "@/lib/utils";
 
 type Range = "1D" | "7D" | "1M";
 const RANGE_S: Record<Range, number> = { "1D": 86400, "7D": 7 * 86400, "1M": 30 * 86400 };
@@ -72,6 +73,7 @@ function BotView({ bot }: { bot: Bot }) {
   const nextRisk = riskBody(risk);
   const riskChanged = nextRisk.risk_percent !== savedRisk.risk_percent || nextRisk.risk_amount !== savedRisk.risk_amount;
   const dirty = riskChanged || account !== (bot.broker_account_id ?? "");
+  const check = describeCheck(bot, timeframeLabel(bot.timeframe));
   const tv = bot.source === "tradingview" || /function\s+onAlert\s*\(/.test(bot.strategy?.code ?? "");
   const list_ = list === "open" ? s.open : s.closed.slice().reverse();
 
@@ -126,6 +128,16 @@ function BotView({ bot }: { bot: Bot }) {
             ]}
           />
           {!runningNow && bot.paused_reason && <p className="-mt-1 text-xs text-amber-300">{bot.paused_reason}</p>}
+          {check && (
+            <p
+              className={cn(
+                "-mt-1 rounded-lg px-3 py-2 text-xs",
+                check.tone === "warn" ? "bg-amber-300/10 text-amber-300" : check.tone === "ok" ? "bg-profit/10 text-profit" : "bg-black/25 text-muted-foreground",
+              )}
+            >
+              <span className="font-semibold">Last check{check.at ? ` · ${timeAgo(check.at)}` : ""}:</span> {check.text}
+            </p>
+          )}
           <Switcher
             accent={false}
             value={panel}

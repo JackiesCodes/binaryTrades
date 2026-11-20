@@ -458,3 +458,36 @@ export function RiskField({ value, onChange, currency = "USD" }: { value: RiskVa
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// The engine's latest verdict on a bot, in plain words
+
+/** What the engine last decided for this bot, and whether that needs attention. */
+export function describeCheck(bot: Pick<Bot, "status" | "source" | "timeframe" | "last_check">, tfLabel: string, now = Date.now()) {
+  const c = bot.last_check;
+  if (bot.status !== "running") return null;
+  if (!c) return { text: "Not checked yet. The engine looks at running bots every minute.", tone: "muted" as const, at: null };
+  const ageMin = (now - Date.parse(c.at)) / 60_000;
+  // Bots are checked every minute; the verdict is re-saved at least every 5 minutes.
+  if (ageMin > 15) {
+    return { text: `The engine hasn't checked this bot for ${Math.round(ageMin)} minutes. The every-minute schedule may have stopped.`, tone: "warn" as const, at: c.at };
+  }
+  const r = c.result;
+  const map: Array<[RegExp, string, "ok" | "muted" | "warn"]> = [
+    [/^waiting for next bar$/, `Waiting for the next ${tfLabel} candle to close.`, "muted"],
+    [/^hold$/, "Checked the latest candle: no new trade signal.", "muted"],
+    [/^(buy|sell)$/, `Sent a ${r.toUpperCase()} order on the latest candle.`, "ok"],
+    [/^closed$/, "Closed its position on the latest candle.", "ok"],
+    [/^not enough data$/, "Not enough price history for this market and timeframe yet.", "warn"],
+    [/^waiting for MT5 prices$/, "Waiting for prices from the MT5 bridge EA (is it running with candles enabled?).", "warn"],
+    [/^alerts only$/, "This script only trades on TradingView alerts.", "muted"],
+    [/^waiting for TradingView alerts$/, "Waiting for TradingView alerts.", "muted"],
+    [/^kill switch on$/, "The kill switch is on.", "warn"],
+    [/^no strategy$/, "This bot has no strategy set.", "warn"],
+  ];
+  for (const [re, text, tone] of map) if (re.test(r)) return { text, tone, at: c.at };
+  if (/^(buy|sell) refused: /.test(r)) return { text: `Wanted to ${r.split(" ")[0]!.toUpperCase()}, but the order was refused: ${r.replace(/^(buy|sell) refused: /, "")}`, tone: "warn" as const, at: c.at };
+  if (/^paused/.test(r)) return { text: r.replace(/^paused: /, "Paused: "), tone: "warn" as const, at: c.at };
+  if (/^error: /.test(r)) return { text: `Error: ${r.slice(7)}`, tone: "warn" as const, at: c.at };
+  return { text: r, tone: "muted" as const, at: c.at };
+}

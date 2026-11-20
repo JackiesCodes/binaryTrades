@@ -16,7 +16,11 @@ async function handle(request: Request) {
   const url = new URL(request.url);
   const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? url.searchParams.get("key");
   if (!secret || provided !== secret) return jsonError(401, "INVALID_CRON_SECRET");
-  return NextResponse.json(await runEngineTick());
+  const report = await runEngineTick();
+  // One line per tick in the server log: each running bot and the engine's verdict on it.
+  const entries = Object.entries(report.bots);
+  console.info(`[engine] ${report.users} users, ${entries.length} bots — ${entries.map(([k, v]) => `${k}: ${v}`).join(" | ").slice(0, 3000)}`);
+  return NextResponse.json(report);
 }
 
 export const GET = handle;

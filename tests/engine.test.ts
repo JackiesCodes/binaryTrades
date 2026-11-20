@@ -435,6 +435,47 @@ describe("Deriv credentials", () => {
   });
 });
 
+describe("engine verdicts", () => {
+  // Signals on the latest candle only, so the engine sees a fresh entry.
+  const always = (side: "buy" | "sell") => ({ id: "script", params: { atr_mult: 2, rr: 0 }, code: `function onBar(i) { if (i === bars.length - 1) return "${side}"; }` });
+
+  it("reports a refused order as refused, not as a trade, and remembers it on the bot", async () => {
+    const demo = await derivAccount("t", true, 1000);
+    await getStore().brokers.update(demo.id, { status: "error", error: "token expired" });
+    const bot = makeBot({ source: "builtin", broker_account_id: demo.id, data_symbol: "R_75", strategy: always("buy") });
+    await getStore().bots.insert(bot);
+    // Engine tick re-syncs Deriv accounts; keep this one failing so the order is refused.
+    deps.derivSnapshot = async () => { throw new Error("token expired"); };
+    try {
+      const report = await runEngineTick();
+      const verdict = Object.entries(report.bots).find(([k]) => k.endsWith(":Test bot"))?.[1];
+      expect(verdict).toMatch(/^buy refused: .*not connected/);
+      expect((await getStore().bots.get(bot.id))!.last_check).toMatchObject({ result: verdict });
+      expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(0);
+    } finally {
+      deps.derivSnapshot = async (cred) => ({ balance: derivEquity[cred.token] ?? 0, currency: "USD", equity: derivEquity[cred.token] ?? 0, contracts: [] });
+    }
+  });
+
+  it("records a trade and the waiting state between candles", async () => {
+    const demo = await derivAccount("t", true, 1000);
+    const bot = makeBot({ source: "builtin", broker_account_id: demo.id, data_symbol: "R_75", strategy: always("buy") });
+    await getStore().bots.insert(bot);
+    await runEngineTick();
+    expect((await getStore().bots.get(bot.id))!.last_check!.result).toBe("buy");
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(1);
+    await runEngineTick();
+    expect((await getStore().bots.get(bot.id))!.last_check!.result).toBe("waiting for next bar");
+  });
+
+  it("marks TradingView bots as waiting for alerts", async () => {
+    const bot = makeBot({ source: "tradingview" });
+    await getStore().bots.insert(bot);
+    await runEngineTick();
+    expect((await getStore().bots.get(bot.id))!.last_check!.result).toBe("waiting for TradingView alerts");
+  });
+});
+
 describe("multi-user isolation", () => {
   it("keeps each user's accounts, bots, trades and limits apart", async () => {
     const a = await derivAccount("tok-a", true, 1000, "user-a");
