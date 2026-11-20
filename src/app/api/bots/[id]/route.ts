@@ -55,6 +55,7 @@ export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
   }
 
   if (patch.broker_account_id !== undefined && patch.broker_account_id !== bot.broker_account_id) {
+    if (bot.challenge && !bot.challenge.ended_at) return jsonError(409, "STOP_CHALLENGE_FIRST");
     if (!patch.broker_account_id || !(await store.brokers.get(patch.broker_account_id))) return jsonError(400, "UNKNOWN_BROKER");
     if ((await activeTrades(user.id, { bot_id: bot.id })).length) return jsonError(409, "CLOSE_TRADES_BEFORE_SWITCHING_ACCOUNT");
   }

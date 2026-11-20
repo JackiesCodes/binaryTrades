@@ -41,6 +41,33 @@ describe("checkRisk", () => {
   });
 });
 
+describe("challenge risk", () => {
+  const challenge = { risk_percent: 40, target_multiple: 2, hours: 24, started_at: "", start_equity: 10_000, ended_at: null, result: null, end_equity: null };
+
+  it("uses the challenge's risk on demo, and skips the demo loss limits", () => {
+    const demo = { ...base, book: "demo" as const, bot: { ...bot, challenge } };
+    expect(checkRisk(demo)).toEqual({ ok: true, riskAmount: 4000 });
+    expect(checkRisk({ ...demo, bookEquity: 5_000 })).toEqual({ ok: true, riskAmount: 4000 });
+    expect(checkRisk({ ...demo, bot: { ...bot, challenge: { ...challenge, risk_percent: 90 } } })).toEqual({ ok: true, riskAmount: 5000 });
+  });
+
+  it("never applies to real money", () => {
+    const real = { ...base, book: "real" as const, bot: { ...bot, challenge } };
+    expect(checkRisk(real)).toEqual({ ok: true, riskAmount: 100 });
+    expect(checkRisk({ ...real, bookEquity: 9_700 })).toMatchObject({ ok: false, breach: "daily_loss" });
+  });
+
+  it("stops at the kill switch like everything else", () => {
+    const demo = { ...base, book: "demo" as const, bot: { ...bot, challenge }, settings: { ...defaultSettings("u"), kill_switch: true } };
+    expect(checkRisk(demo).ok).toBe(false);
+  });
+
+  it("ignores a finished challenge", () => {
+    const demo = { ...base, book: "demo" as const, bot: { ...bot, challenge: { ...challenge, ended_at: "x", result: "won" as const } } };
+    expect(checkRisk(demo)).toEqual({ ok: true, riskAmount: 100 });
+  });
+});
+
 describe("advanceBookState", () => {
   it("rolls the day and tracks the peak", () => {
     const s = advanceBookState({ peak_equity: 100, day_key: "a", day_start_equity: 100 }, 120, "b");
@@ -57,5 +84,9 @@ describe("derivStake", () => {
 
   it("never stakes more than a quarter of equity", () => {
     expect(derivStake({ riskAmount: 10, entry: 1.1, stopDistance: 0.00001, multiplier: 100, equity: 1000 }).stake).toBe(250);
+  });
+
+  it("lets a demo challenge stake up to the whole account", () => {
+    expect(derivStake({ riskAmount: 10, entry: 1.1, stopDistance: 0.00001, multiplier: 100, equity: 1000, maxStakeFraction: 1 }).stake).toBe(1000);
   });
 });

@@ -68,7 +68,28 @@ export interface Bot {
   webhook_passphrase: string;
   last_bar_epoch: number | null;
   last_signal_at: string | null;
+  /** Demo-only high-risk challenge (null when none has been run). */
+  challenge?: Challenge | null;
   created_at: string;
+}
+
+/**
+ * A demo-only "double the account" challenge: the bot risks far more per trade than the
+ * normal 5% cap, and stops when the account reaches the target, falls to 10% of where it
+ * started, or the time runs out. The server never applies it to a real-money account.
+ */
+export interface Challenge {
+  /** Risk per trade while the challenge runs, 5–50%. */
+  risk_percent: number;
+  /** Stop when equity reaches start × this (2 = double). */
+  target_multiple: number;
+  /** Time limit. */
+  hours: number;
+  started_at: string;
+  start_equity: number;
+  ended_at: string | null;
+  result: "won" | "lost" | "expired" | "stopped" | null;
+  end_equity: number | null;
 }
 
 export type TradeStatus = "pending" | "open" | "closed" | "rejected";

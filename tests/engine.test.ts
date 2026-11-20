@@ -7,7 +7,7 @@ import { ingestMt5Report, type Mt5Report } from "@/lib/brokers/mt5";
 import { encryptSecret } from "@/lib/secrets";
 import { activeTrades, bookEquity, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
 import { forUser, getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
-import type { Bot, BrokerAccount } from "@/lib/trading/types";
+import type { Bot, BrokerAccount, Challenge } from "@/lib/trading/types";
 
 // ---------------------------------------------------------------------------
 // Fake Deriv: contracts live in memory; equity is set per test.
@@ -173,6 +173,96 @@ describe("trading engine", () => {
     await setKillSwitch(U, true);
     expect(await activeTrades(U)).toHaveLength(0);
     expect((await getStore().bots.get(bot.id))!.status).toBe("paused");
+  });
+});
+
+describe("demo challenges", () => {
+  const challenge = (patch: Partial<Challenge> = {}): Challenge => ({
+    risk_percent: 30,
+    target_multiple: 2,
+    hours: 24,
+    started_at: nowIso(),
+    start_equity: 1000,
+    ended_at: null,
+    result: null,
+    end_equity: null,
+    ...patch,
+  });
+
+  it("risks the challenge's percentage on a demo account, staking up to the whole account", async () => {
+    const demo = await derivAccount("demo", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id, challenge: challenge() });
+    await getStore().bots.insert(bot);
+    // 30% of 1000 = 300 risk; a 0.01% stop would need a 30,000 stake, capped at the whole account.
+    await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1, sl: 1.1 - 0.00011 });
+    const [t] = await activeTrades(U, { bot_id: bot.id });
+    expect(t!.risk_amount).toBeCloseTo(300);
+    expect(t!.size).toBeCloseTo(1000);
+  });
+
+  it("is ignored on a real account: the bot's own risk and a quarter-of-equity stake cap still apply", async () => {
+    const real = await derivAccount("real", false, 1000);
+    const bot = makeBot({ broker_account_id: real.id, challenge: challenge({ risk_percent: 50 }) });
+    await getStore().bots.insert(bot);
+    await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1, sl: 1.1 - 0.00011 });
+    const [t] = await activeTrades(U, { bot_id: bot.id });
+    // The bot's own 1% (not the challenge's 50%), and at most a quarter of the account staked.
+    expect(t!.risk_amount).toBeCloseTo(10);
+    expect(t!.size).toBeCloseTo(250);
+    // …and the next tick ends it, because challenges only run on demo accounts.
+    await runEngineTick();
+    const after = (await getStore().bots.get(bot.id))!;
+    expect(after.challenge).toMatchObject({ result: "stopped" });
+    expect(after.status).toBe("paused");
+  });
+
+  it("is not paused by the demo account's daily loss limit; other demo bots are", async () => {
+    await updateSettings(U, { daily_loss_limit: 50 });
+    const demo = await derivAccount("demo", true, 1000);
+    const challenger = makeBot({ broker_account_id: demo.id, challenge: challenge() });
+    const other = makeBot({ broker_account_id: demo.id });
+    await getStore().bots.insert(challenger);
+    await getStore().bots.insert(other);
+    await runEngineTick();
+    derivEquity.demo = 700;
+    await runEngineTick();
+    expect((await getStore().bots.get(challenger.id))!.status).toBe("running");
+    expect((await getStore().bots.get(other.id))!.status).toBe("paused");
+    // Its own trades still pass the risk check despite the demo day being down 300.
+    const s = await processSignal({ bot: (await getStore().bots.get(challenger.id))!, source: "tradingview", action: "buy", price: 1.1 });
+    expect(s.status).toBe("accepted");
+  });
+
+  it.each([
+    ["won", 2000, {}],
+    ["lost", 100, {}],
+    ["expired", 1100, { started_at: new Date(Date.now() - 25 * 3600_000).toISOString() }],
+  ] as const)("ends as %s: closes the bot's trades and pauses it", async (result, equity, patch) => {
+    const demo = await derivAccount("demo", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id, challenge: challenge(patch) });
+    await getStore().bots.insert(bot);
+    await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1 });
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(1);
+    derivEquity.demo = equity;
+    await runEngineTick();
+    const after = (await getStore().bots.get(bot.id))!;
+    expect(after.challenge).toMatchObject({ result, end_equity: equity });
+    expect(after.challenge!.ended_at).toBeTruthy();
+    expect(after.status).toBe("paused");
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(0);
+  });
+
+  it("keeps running between its limits", async () => {
+    const demo = await derivAccount("demo", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id, challenge: challenge() });
+    await getStore().bots.insert(bot);
+    derivEquity.demo = 1900;
+    await runEngineTick();
+    derivEquity.demo = 150;
+    await runEngineTick();
+    const after = (await getStore().bots.get(bot.id))!;
+    expect(after.challenge!.ended_at).toBeNull();
+    expect(after.status).toBe("running");
   });
 });
 

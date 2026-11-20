@@ -1,4 +1,13 @@
-import type { Book, BookState, Bot, Settings } from "@/lib/trading/types";
+import type { Book, BookState, Bot, Challenge, Settings } from "@/lib/trading/types";
+
+/** Highest risk per trade a demo challenge may use. */
+export const CHALLENGE_MAX_RISK = 50;
+
+/** A running challenge — honoured only on demo accounts; real money always keeps the normal limits. */
+export function activeChallenge(bot: Pick<Bot, "challenge">, book: Book): Challenge | null {
+  const c = bot.challenge;
+  return book === "demo" && c && !c.ended_at ? c : null;
+}
 
 export interface RiskInput {
   settings: Settings;
@@ -25,13 +34,17 @@ export function checkRisk(input: RiskInput): RiskDecision {
   if (bot.status !== "running") return { ok: false, reason: "Bot is paused" };
   if (equity <= 0) return { ok: false, reason: "No equity available on this account" };
 
+  // A demo challenge plays out to its own end (target, 90% loss or time limit), so the demo
+  // account's daily-loss and drawdown limits don't stop it. Real money never gets here.
+  const challenge = activeChallenge(bot, input.book);
+
   const dayLoss = bookState.day_start_equity - bookEquity;
-  if (settings.daily_loss_limit > 0 && dayLoss >= settings.daily_loss_limit) {
+  if (!challenge && settings.daily_loss_limit > 0 && dayLoss >= settings.daily_loss_limit) {
     return { ok: false, reason: `Daily loss limit reached (${dayLoss.toFixed(2)})`, breach: "daily_loss" };
   }
 
   const drawdown = bookState.peak_equity > 0 ? ((bookState.peak_equity - bookEquity) / bookState.peak_equity) * 100 : 0;
-  if (settings.max_drawdown_percent > 0 && drawdown >= settings.max_drawdown_percent) {
+  if (!challenge && settings.max_drawdown_percent > 0 && drawdown >= settings.max_drawdown_percent) {
     return { ok: false, reason: `Max drawdown reached (${drawdown.toFixed(1)}%)`, breach: "drawdown" };
   }
 
@@ -42,7 +55,9 @@ export function checkRisk(input: RiskInput): RiskDecision {
     return { ok: false, reason: "Bot already has its maximum open trades" };
   }
 
-  const riskPercent = Math.min(bot.risk_percent || settings.default_risk_percent, 5);
+  const riskPercent = challenge
+    ? Math.min(challenge.risk_percent, CHALLENGE_MAX_RISK)
+    : Math.min(bot.risk_percent || settings.default_risk_percent, 5);
   return { ok: true, riskAmount: (equity * riskPercent) / 100 };
 }
 
@@ -64,13 +79,15 @@ export function derivStake(params: {
   stopDistance: number | null;
   multiplier: number;
   equity: number;
+  /** Largest stake as a share of equity: a quarter normally, the whole account in a demo challenge. */
+  maxStakeFraction?: number;
 }): { stake: number; stopLossAmount: number | undefined } {
-  const { riskAmount, entry, stopDistance, multiplier, equity } = params;
+  const { riskAmount, entry, stopDistance, multiplier, equity, maxStakeFraction = 0.25 } = params;
   if (!stopDistance || stopDistance <= 0 || !entry) {
     // A multiplier contract can never lose more than its stake.
     return { stake: Math.max(1, riskAmount), stopLossAmount: undefined };
   }
   const raw = (riskAmount * entry) / (multiplier * stopDistance);
-  const stake = Math.max(1, Math.min(raw, equity * 0.25));
+  const stake = Math.max(1, Math.min(raw, equity * maxStakeFraction));
   return { stake, stopLossAmount: Math.min(riskAmount, stake) };
 }

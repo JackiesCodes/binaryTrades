@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 
 import { WebhookSetup, botKind, botStats, useBotActions } from "@/components/app/bot-parts";
+import { ChallengePanel } from "@/components/app/challenge";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
 import { EmptyState, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
@@ -44,7 +45,8 @@ function BotView({ bot }: { bot: Bot }) {
   const { busy, broker, patch, signal, remove } = useBotActions(bot);
   const [range, setRange] = useState<Range>("7D");
   const [list, setList] = useState<"open" | "closed">("open");
-  const [panel, setPanel] = useState<"settings" | "manual">("settings");
+  const challengeOn = Boolean(bot.challenge && !bot.challenge.ended_at);
+  const [panel, setPanel] = useState<"settings" | "manual" | "challenge">(challengeOn ? "challenge" : "settings");
   const [risk, setRisk] = useState(String(bot.risk_percent));
   const [account, setAccount] = useState(bot.broker_account_id ?? "");
   const [selected, setSelected] = useState<Trade | null>(null);
@@ -95,7 +97,9 @@ function BotView({ bot }: { bot: Bot }) {
             { label: market, value: last ? price(last) : `${bot.symbol} · ${timeframeLabel(bot.timeframe)}` },
             { label: "P&L", value: money(s.pnl, broker?.currency, true), tone: pnlClass(s.pnl) },
             { label: "Win rate", value: s.winRate !== null ? `${s.winRate}% · ${s.closed.length}` : "—" },
-            { label: "Risk", value: `${bot.risk_percent}%` },
+            challengeOn
+              ? { label: "Risk · challenge", value: `${bot.challenge!.risk_percent}%`, tone: "text-gold" }
+              : { label: "Risk", value: `${bot.risk_percent}%` },
             { label: "Last signal", value: bot.last_signal_at ? timeAgo(bot.last_signal_at) : "—" },
           ]}
         />
@@ -125,11 +129,15 @@ function BotView({ bot }: { bot: Bot }) {
             onChange={setPanel}
             options={[
               { value: "settings", label: "Settings" },
-              { value: "manual", label: "Manual trade" },
+              { value: "manual", label: "Manual" },
+              // Challenges are demo-only; the tab doesn't appear for real-money accounts.
+              ...(broker?.is_demo || challengeOn ? [{ value: "challenge" as const, label: "Challenge" }] : []),
             ]}
           />
 
-          {panel === "settings" ? (
+          {panel === "challenge" && broker ? (
+            <ChallengePanel bot={bot} broker={broker} />
+          ) : panel === "settings" || panel === "challenge" ? (
             <>
               <FieldBox>
                 <label className="grid gap-1.5">

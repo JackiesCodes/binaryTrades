@@ -5,9 +5,9 @@ import { decryptSecret } from "@/lib/secrets";
 import { atrSeries, getStrategy } from "@/lib/strategies";
 import { resolveLevels } from "@/lib/strategies/backtest";
 import { SCRIPT_STRATEGY_ID, scriptStrategy, type ScriptContext } from "@/lib/strategies/script";
-import { advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
+import { activeChallenge, advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
 import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
-import type { Book, Bot, BrokerAccount, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
+import type { Book, Bot, BrokerAccount, Challenge, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
 
 /** External calls, swappable in tests. */
 export const deps = {
@@ -189,6 +189,7 @@ export async function openTrade(
       stopDistance,
       multiplier: bot.deriv_multiplier,
       equity: broker.equity,
+      maxStakeFraction: activeChallenge(bot, book) ? 1 : 0.25,
     });
     const takeProfitAmount =
       price && tp !== null ? (stake * bot.deriv_multiplier * Math.abs(tp - price)) / price : undefined;
@@ -249,6 +250,72 @@ export async function openTrade(
   });
   await log("trade", `MT5 ${req.side.toUpperCase()} ${bot.symbol} queued for ${broker.label}`, { user_id: userId, bot_id: bot.id });
   return { ok: true, trade };
+}
+
+// ---------------------------------------------------------------------------
+// Demo challenges
+
+/** A challenge ends when equity reaches start × target ("won") or falls to this share of the start ("lost"). */
+export const CHALLENGE_BUST_FRACTION = 0.1;
+
+const CHALLENGE_TEXT: Record<NonNullable<Challenge["result"]>, string> = {
+  won: "reached its target",
+  lost: "lost 90% of the starting equity",
+  expired: "ran out of time",
+  stopped: "stopped",
+};
+
+/** Ends a running challenge: closes the bot's trades, pauses it and records the result. */
+export async function endChallenge(bot: Bot, result: NonNullable<Challenge["result"]>, detail?: string): Promise<Bot> {
+  const store = forUser(bot.user_id);
+  const c = bot.challenge;
+  if (!c || c.ended_at) return bot;
+  for (const trade of await activeTrades(bot.user_id, { bot_id: bot.id })) {
+    try {
+      await closeTrade(trade, "Challenge ended");
+    } catch (error) {
+      await log("error", `${bot.name}: could not close ${trade.symbol} at the end of the challenge — ${(error as Error).message}`, {
+        user_id: bot.user_id,
+        bot_id: bot.id,
+      });
+    }
+  }
+  const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
+  if (broker?.kind === "deriv") await syncDerivAccount(broker).catch(() => undefined);
+  const after = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
+  const end = after?.equity ?? broker?.equity ?? null;
+  const challenge: Challenge = { ...c, ended_at: nowIso(), result, end_equity: end };
+  const pct = end !== null && c.start_equity > 0 ? ((end - c.start_equity) / c.start_equity) * 100 : null;
+  const change = pct !== null ? ` · ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%` : "";
+  const why = detail ? (detail.startsWith("by ") ? ` ${detail}` : ` — ${detail}`) : "";
+  const text = `Challenge ${CHALLENGE_TEXT[result]}${why}${change}`;
+  const updated = await store.bots.update(bot.id, { challenge, status: "paused", paused_reason: text.slice(0, 300) });
+  await log(result === "won" ? "info" : "warn", `${bot.name}: ${text}`, { user_id: bot.user_id, bot_id: bot.id });
+  return updated ?? { ...bot, challenge, status: "paused" };
+}
+
+/** Called every tick for bots with a running challenge. Returns the result if it just ended. */
+export async function checkChallenge(bot: Bot): Promise<Challenge["result"]> {
+  const c = bot.challenge;
+  if (!c || c.ended_at) return null;
+  const broker = bot.broker_account_id ? await forUser(bot.user_id).brokers.get(bot.broker_account_id) : null;
+  if (!broker || !broker.is_demo) {
+    await endChallenge(bot, "stopped", "challenges only run on demo accounts");
+    return "stopped";
+  }
+  if (broker.equity >= c.start_equity * c.target_multiple) {
+    await endChallenge(bot, "won");
+    return "won";
+  }
+  if (broker.equity <= c.start_equity * CHALLENGE_BUST_FRACTION) {
+    await endChallenge(bot, "lost");
+    return "lost";
+  }
+  if (Date.now() >= Date.parse(c.started_at) + c.hours * 3600_000) {
+    await endChallenge(bot, "expired");
+    return "expired";
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +411,8 @@ async function handleBreach(userId: string, book: Book, breach: "daily_loss" | "
     await setKillSwitch(userId, true, reason);
     return;
   }
-  const running = await botsInBook(userId, book, { status: "running" });
+  // A demo challenge has its own end conditions; the demo account's limits don't stop it.
+  const running = (await botsInBook(userId, book, { status: "running" })).filter((b) => !activeChallenge(b, book));
   if (!running.length) return;
   for (const bot of running) await store.bots.update(bot.id, { status: "paused", paused_reason: reason });
   await log("warn", `${reason} — paused ${running.length} ${book}-account bot(s) until you restart them`, { user_id: userId });
@@ -643,6 +711,17 @@ export async function tickUser(userId: string): Promise<Record<string, string>> 
     if (broker.kind === "deriv") await syncDerivAccount(broker);
     else if (broker.status === "connected" && broker.last_sync_at && Date.now() - Date.parse(broker.last_sync_at) > 120_000) {
       await store.brokers.update(broker.id, { status: "waiting", error: "MT5 bridge has not checked in for 2 minutes" });
+    }
+  }
+
+  // Demo challenges end on target, a 90% loss or their time limit, before the bots trade.
+  for (const bot of await store.bots.all()) {
+    if (bot.challenge && !bot.challenge.ended_at) {
+      try {
+        await checkChallenge(bot);
+      } catch (error) {
+        await log("error", `${bot.name} challenge: ${(error as Error).message}`, { user_id: userId, bot_id: bot.id });
+      }
     }
   }
 

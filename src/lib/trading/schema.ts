@@ -319,6 +319,14 @@ create index if not exists market_data_account_idx on market_data (account_id);
 alter table market_data enable row level security;
 `,
   },
+  {
+    file: "0007_challenges.sql",
+    sql: `-- 0007: demo-only "double the account" challenges on bots.
+-- Idempotent: safe to run more than once.
+
+alter table bots add column if not exists challenge jsonb;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -332,4 +340,6 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
   "0005_multi_user.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'equity' and column_name = 'user_id') as done",
   "0006_broker_prices.sql": "select to_regclass('public.market_data') is not null as done",
+  "0007_challenges.sql":
+    "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'challenge') as done",
 };
