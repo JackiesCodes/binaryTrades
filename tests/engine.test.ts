@@ -394,6 +394,28 @@ describe("MT5 bridge", () => {
 });
 
 describe("Deriv credentials", () => {
+  it("trades a Step Index bot set to ×100 (which Deriv refuses there) at ×750, risking the same money", async () => {
+    const seen: number[] = [];
+    const original = deps.derivOpen;
+    deps.derivOpen = async (cred, order) => {
+      seen.push(order.multiplier);
+      return original(cred, order);
+    };
+    try {
+      const demo = await derivAccount("step-token", true, 1000);
+      const bot = makeBot({ broker_account_id: demo.id, symbol: "stpRNG", data_symbol: "stpRNG", deriv_multiplier: 100 });
+      await getStore().bots.insert(bot);
+      const s = await processSignal({ bot, source: "tradingview", action: "buy", price: 1000, sl: 999 });
+      expect(s.status).toBe("accepted");
+      expect(seen).toEqual([750]);
+      // $10 risk over a 0.1% stop at ×750 → $13.33 stake (stop-loss capped at the stake).
+      expect((await activeTrades(U, { bot_id: bot.id }))[0]!.size).toBeCloseTo(13.33, 1);
+      expect((await getStore().bots.get(bot.id))!.deriv_multiplier).toBe(750);
+    } finally {
+      deps.derivOpen = original;
+    }
+  });
+
   it("passes the decrypted token, App ID and account to Deriv calls", async () => {
     const seen: unknown[] = [];
     const original = deps.derivOpen;

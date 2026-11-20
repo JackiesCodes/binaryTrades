@@ -8,6 +8,7 @@ import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from 
 import { activeTrades, closeTrade } from "@/lib/trading/engine";
 import { forUser, getSettings, log } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
+import { allowedMultipliers, multiplierMessage } from "@/lib/trading/symbols";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ const patchSchema = z.object({
   risk_percent: z.coerce.number().min(0.1).max(5).optional(),
   /** Fixed risk per trade in the account's currency; null switches back to risk_percent. */
   risk_amount: z.coerce.number().positive().max(1_000_000).nullable().optional(),
-  deriv_multiplier: z.coerce.number().int().min(1).max(5000).optional(),
+  deriv_multiplier: z.coerce.number().int().min(1).max(10000).optional(),
   timeframe: z.coerce.number().int().positive().optional(),
   price_source: z.enum(["deriv", "broker"]).optional(),
   strategy_params: z.record(z.coerce.number()).optional(),
@@ -60,6 +61,11 @@ export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
     if (bot.challenge && !bot.challenge.ended_at) return jsonError(409, "STOP_CHALLENGE_FIRST");
     if (!patch.broker_account_id || !(await store.brokers.get(patch.broker_account_id))) return jsonError(400, "UNKNOWN_BROKER");
     if ((await activeTrades(user.id, { bot_id: bot.id })).length) return jsonError(409, "CLOSE_TRADES_BEFORE_SWITCHING_ACCOUNT");
+  }
+
+  if (patch.deriv_multiplier !== undefined) {
+    const allowed = allowedMultipliers(bot.symbol);
+    if (allowed && !allowed.includes(patch.deriv_multiplier)) return jsonError(400, "BAD_MULTIPLIER", multiplierMessage(bot.symbol, patch.deriv_multiplier, allowed));
   }
 
   if (patch.status === "running") {

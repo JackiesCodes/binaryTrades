@@ -6,7 +6,7 @@ import { jsonError, zodError } from "@/lib/http";
 import { randomToken } from "@/lib/secrets";
 import { defaultParams, getStrategy } from "@/lib/strategies";
 import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
-import { guessDataSymbol } from "@/lib/trading/symbols";
+import { allowedMultipliers, defaultMultiplier, guessDataSymbol, multiplierMessage } from "@/lib/trading/symbols";
 import { forUser, getSettings, log, newId, nowIso } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 
@@ -23,7 +23,7 @@ const botInputSchema = z.object({
   strategy_params: z.record(z.coerce.number()).optional(),
   risk_percent: z.coerce.number().min(0.1).max(5).default(1),
   risk_amount: z.coerce.number().positive().max(1_000_000).nullable().optional(),
-  deriv_multiplier: z.coerce.number().int().min(1).max(5000).default(100),
+  deriv_multiplier: z.coerce.number().int().min(1).max(10000).optional(),
   /** "broker": read candles from the bot's own MT5 account (bridge EA). */
   price_source: z.enum(["deriv", "broker"]).default("deriv"),
   /** JavaScript source, for strategy_id "script". */
@@ -44,6 +44,9 @@ export const POST = withUser(async (user, request) => {
 
   const broker = await store.brokers.get(input.broker_account_id);
   if (!broker) return jsonError(400, "UNKNOWN_BROKER");
+  const multiplier = input.deriv_multiplier ?? defaultMultiplier(input.symbol);
+  const allowed = broker.kind === "deriv" ? allowedMultipliers(input.symbol) : null;
+  if (allowed && !allowed.includes(multiplier)) return jsonError(400, "BAD_MULTIPLIER", multiplierMessage(input.symbol, multiplier, allowed));
 
   let strategy: Bot["strategy"] = null;
   if (input.source === "builtin" && input.strategy_id === SCRIPT_STRATEGY_ID) {
@@ -79,7 +82,7 @@ export const POST = withUser(async (user, request) => {
     paused_reason: startNow ? null : input.start ? "Kill switch is on — start the bot after releasing it" : "New bot — press Start when ready",
     risk_percent: input.risk_percent,
     risk_amount: input.risk_amount ?? null,
-    deriv_multiplier: input.deriv_multiplier,
+    deriv_multiplier: multiplier,
     magic: nextMagic(existing),
     webhook_passphrase: randomToken(18),
     last_bar_epoch: null,

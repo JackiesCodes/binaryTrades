@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, brokerOptionLabel } from "@/lib/client";
 import { STRATEGIES, defaultParams, getStrategy } from "@/lib/strategies";
-import { DATA_SYMBOLS, TIMEFRAMES, guessDataSymbol } from "@/lib/trading/symbols";
+import { DATA_SYMBOLS, TIMEFRAMES, allowedMultipliers, defaultMultiplier, guessDataSymbol, symbolLabel } from "@/lib/trading/symbols";
 import type { PublicBroker } from "@/lib/trading/state";
 import type { Bot, Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
@@ -302,9 +302,7 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
       <RiskField value={risk} onChange={setRisk} currency={broker?.currency} />
       <div className="grid grid-cols-2 gap-4">
         {broker?.kind === "deriv" && (
-          <Field label="Deriv multiplier" hint="Must be a value Deriv allows for this market.">
-            <Input type="number" min="1" value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
-          </Field>
+          <MultiplierField symbol={symbol} value={multiplier} onChange={setMultiplier} />
         )}
       </div>
 
@@ -496,4 +494,34 @@ export function describeCheck(bot: Pick<Bot, "status" | "source" | "timeframe" |
   if (/^paused/.test(r)) return { text: r.replace(/^paused: /, "Paused: "), tone: "warn" as const, at: c.at };
   if (/^error: /.test(r)) return { text: `Error: ${r.slice(7)}`, tone: "warn" as const, at: c.at };
   return { text: r, tone: "muted" as const, at: c.at };
+}
+
+/**
+ * Deriv multiplier picker. Offers only the values Deriv accepts on this market (Step Index has no ×100),
+ * and moves to the market's default when the market changes to one that doesn't allow the current value.
+ */
+export function MultiplierField({ symbol, value, onChange, label = "Deriv multiplier" }: { symbol: string; value: number; onChange: (m: number) => void; label?: string }) {
+  const allowed = allowedMultipliers(symbol);
+  useEffect(() => {
+    if (allowed && !allowed.includes(value)) onChange(defaultMultiplier(symbol));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
+  if (!allowed) {
+    return (
+      <Field label={label} hint="Must be a value Deriv allows for this market.">
+        <Input type="number" min="1" value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      </Field>
+    );
+  }
+  return (
+    <Field label={label} hint={`Values Deriv allows on ${symbolLabel(symbol)}.`}>
+      <select className={selectClass} value={allowed.includes(value) ? value : allowed[0]} onChange={(e) => onChange(Number(e.target.value))}>
+        {allowed.map((m) => (
+          <option key={m} value={m}>
+            ×{m}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
 }

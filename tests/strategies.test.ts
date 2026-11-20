@@ -76,3 +76,17 @@ describe("strategies", () => {
     for (let i = 1; i < board.length; i++) expect(board[i - 1]!.oos_score).toBeGreaterThanOrEqual(board[i]!.oos_score);
   });
 });
+
+describe("Deriv multipliers", () => {
+  it("knows which multipliers each market allows", async () => {
+    const { allowedMultipliers, defaultMultiplier, validMultiplier } = await import("@/lib/trading/symbols");
+    expect(allowedMultipliers("stpRNG")).toEqual([750, 2000, 3500, 5500, 7500]);
+    expect(defaultMultiplier("stpRNG")).toBe(750);
+    expect(defaultMultiplier("frxXAUUSD")).toBe(100);
+    expect(defaultMultiplier("SOMETHING")).toBe(100);
+    expect(validMultiplier("stpRNG", 100)).toBe(750);
+    expect(validMultiplier("R_50", 300)).toBe(200);
+    expect(validMultiplier("frxXAUUSD", 300)).toBe(300);
+    expect(validMultiplier("SOMETHING", 37)).toBe(37);
+  });
+});

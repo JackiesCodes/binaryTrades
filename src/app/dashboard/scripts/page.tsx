@@ -8,7 +8,7 @@ import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, Tr
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 import { EquityChart } from "@/components/app/equity-chart";
-import { RiskField, riskBody, riskError, riskValueOf, type RiskValue } from "@/components/app/bot-parts";
+import { MultiplierField, RiskField, riskBody, riskError, riskValueOf, type RiskValue } from "@/components/app/bot-parts";
 import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
 import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
@@ -627,9 +627,7 @@ function DeployPanel({
         )}
         <RiskField value={risk} onChange={setRisk} currency={broker?.currency} />
         {!isMt5 && (
-          <Field label="Multiplier">
-            <Input type="number" step="1" min="1" value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
-          </Field>
+          <MultiplierField symbol={dataSymbol} value={multiplier} onChange={setMultiplier} label="Multiplier" />
         )}
       </FieldBox>
         <p className="text-xs text-muted-foreground">

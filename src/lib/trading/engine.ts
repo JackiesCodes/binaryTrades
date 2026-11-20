@@ -7,6 +7,7 @@ import { resolveLevels } from "@/lib/strategies/backtest";
 import { SCRIPT_STRATEGY_ID, scriptStrategy, type ScriptContext } from "@/lib/strategies/script";
 import { activeChallenge, advanceBookState, checkRisk, derivStake } from "@/lib/trading/risk";
 import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
+import { validMultiplier } from "@/lib/trading/symbols";
 import type { Book, Bot, BrokerAccount, Challenge, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
 
 /** External calls, swappable in tests. */
@@ -183,22 +184,30 @@ export async function openTrade(
   };
 
   if (broker.kind === "deriv") {
+    // Bots made before multipliers were checked can hold one Deriv refuses on this market
+    // (Step Index has no ×100): trade with the nearest one it allows. The risk in money stays
+    // the same, because the stake is sized from the multiplier.
+    const multiplier = validMultiplier(bot.symbol, bot.deriv_multiplier);
+    if (multiplier !== bot.deriv_multiplier) {
+      await store.bots.update(bot.id, { deriv_multiplier: multiplier });
+      await log("info", `${bot.name}: Deriv doesn't allow ×${bot.deriv_multiplier} on ${bot.symbol}, using ×${multiplier}`, { user_id: userId, bot_id: bot.id });
+    }
     const { stake, stopLossAmount } = derivStake({
       riskAmount: decision.riskAmount,
       entry: price ?? 0,
       stopDistance,
-      multiplier: bot.deriv_multiplier,
+      multiplier,
       equity: broker.equity,
       maxStakeFraction: activeChallenge(bot, book) ? 1 : 0.25,
     });
     const takeProfitAmount =
-      price && tp !== null ? (stake * bot.deriv_multiplier * Math.abs(tp - price)) / price : undefined;
+      price && tp !== null ? (stake * multiplier * Math.abs(tp - price)) / price : undefined;
     try {
       const res = await deps.derivOpen(derivCredentials(broker), {
         symbol: bot.symbol,
         side: req.side,
         stake,
-        multiplier: bot.deriv_multiplier,
+        multiplier,
         currency: broker.currency,
         stopLossAmount,
         takeProfitAmount,
@@ -212,7 +221,7 @@ export async function openTrade(
         entry_price: res.entry_spot ?? price ?? null,
       };
       await store.trades.insert(trade);
-      await log("trade", `DERIV ${req.side.toUpperCase()} ${bot.symbol} stake ${res.buy_price} ×${bot.deriv_multiplier}`, {
+      await log("trade", `DERIV ${req.side.toUpperCase()} ${bot.symbol} stake ${res.buy_price} ×${multiplier}`, {
         user_id: userId,
         bot_id: bot.id,
         context: { contract_id: res.contract_id },
