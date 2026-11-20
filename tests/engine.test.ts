@@ -457,15 +457,17 @@ describe("engine verdicts", () => {
     }
   });
 
-  it("records a trade and the waiting state between candles", async () => {
+  it("records a trade, and keeps that verdict between candles", async () => {
     const demo = await derivAccount("t", true, 1000);
     const bot = makeBot({ source: "builtin", broker_account_id: demo.id, data_symbol: "R_75", strategy: always("buy") });
     await getStore().bots.insert(bot);
     await runEngineTick();
     expect((await getStore().bots.get(bot.id))!.last_check!.result).toBe("buy");
     expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(1);
-    await runEngineTick();
-    expect((await getStore().bots.get(bot.id))!.last_check!.result).toBe("waiting for next bar");
+    // Between candles the engine only waits; the bot keeps showing the last candle's verdict.
+    const report = await runEngineTick();
+    expect(Object.values(report.bots)).toContain("waiting for next bar");
+    expect((await getStore().bots.get(bot.id))!.last_check!.result).toBe("buy");
   });
 
   it("marks TradingView bots as waiting for alerts", async () => {

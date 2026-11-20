@@ -713,8 +713,12 @@ async function doTick(): Promise<TickReport> {
  * Remembers the engine's latest verdict on a bot so its page can say why it isn't trading.
  * Written when the verdict changes, and at least every 5 minutes so "Last check" stays current.
  */
-async function recordCheck(bot: Bot, result: string): Promise<void> {
+async function recordCheck(bot: Bot, verdict: string): Promise<void> {
+  let result = verdict;
   const prev = bot.last_check;
+  // Between candles, keep showing the verdict from the last candle close (e.g. a refused order)
+  // instead of replacing it with "waiting for next bar"; only the time moves on.
+  if (result === "waiting for next bar" && prev && prev.result !== result) result = prev.result;
   if (prev && prev.result === result && Date.now() - Date.parse(prev.at) < 5 * 60_000) return;
   try {
     await forUser(bot.user_id).bots.update(bot.id, { last_check: { at: nowIso(), result: result.slice(0, 300) } });

@@ -467,6 +467,8 @@ export async function log(
   extra: { user_id: string | null; bot_id?: string | null; context?: Record<string, unknown> },
   store = getStore(),
 ): Promise<void> {
+  // Warnings and errors (refused orders, broker failures) also go to the server log.
+  if (level === "warn" || level === "error") console[level === "warn" ? "warn" : "error"](`[log:${level}] ${message}`);
   await store.logs.insert({
     id: newId(),
     user_id: extra.user_id,

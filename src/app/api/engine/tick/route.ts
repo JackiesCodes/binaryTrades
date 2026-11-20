@@ -16,5 +16,9 @@ export const POST = withUser(async (user) => {
     run = tickUser(user.id).finally(() => inFlight.delete(user.id));
     inFlight.set(user.id, run);
   }
-  return NextResponse.json({ at: new Date().toISOString(), bots: await run });
+  const bots = await run;
+  // Candle-close verdicts reached from an open dashboard also go to the server log (the cron logs its own).
+  const decided = Object.entries(bots).filter(([, v]) => v !== "waiting for next bar");
+  if (decided.length) console.info(`[engine:dashboard] ${decided.map(([k, v]) => `${k}: ${v}`).join(" | ").slice(0, 2000)}`);
+  return NextResponse.json({ at: new Date().toISOString(), bots });
 });
