@@ -668,6 +668,10 @@ export async function runBuiltinBot(bot: Bot): Promise<string> {
     if (sent.status !== "accepted") return `${want === 1 ? "buy" : "sell"} refused: ${sent.reason ?? sent.status}`;
     return want === 1 ? "buy" : "sell";
   }
+  // Say why nothing happened: no signal, or a signal that started on an earlier candle (the engine
+  // only enters on a fresh signal, so it waits for the script's own trade to end and a new one to start).
+  if (want !== 0 && want === prev && want !== currentDir) return `hold: ${want === 1 ? "buy" : "sell"} signal from an earlier candle, waiting for a fresh one`;
+  if (want !== 0 && want === currentDir) return `hold: in a ${want === 1 ? "buy" : "sell"} trade`;
   return "hold";
 }
 
@@ -744,7 +748,7 @@ export async function tickUser(userId: string): Promise<Record<string, string>> 
   const settings = await getSettings(userId);
   if (!settings.kill_switch) {
     for (const bot of await store.bots.all({ eq: { status: "running", source: "builtin" } })) {
-      const key = `${userId.slice(0, 8)}:${bot.name}`;
+      const key = `${userId.slice(0, 8)}:${bot.name} (${bot.data_symbol} ${bot.timeframe / 60}m)`;
       try {
         bots[key] = await runBuiltinBot(bot);
       } catch (error) {

@@ -448,7 +448,7 @@ describe("engine verdicts", () => {
     deps.derivSnapshot = async () => { throw new Error("token expired"); };
     try {
       const report = await runEngineTick();
-      const verdict = Object.entries(report.bots).find(([k]) => k.endsWith(":Test bot"))?.[1];
+      const verdict = Object.entries(report.bots).find(([k]) => k.includes(":Test bot"))?.[1];
       expect(verdict).toMatch(/^buy refused: .*not connected/);
       expect((await getStore().bots.get(bot.id))!.last_check).toMatchObject({ result: verdict });
       expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(0);

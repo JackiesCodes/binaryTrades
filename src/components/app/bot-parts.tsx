@@ -476,6 +476,12 @@ export function describeCheck(bot: Pick<Bot, "status" | "source" | "timeframe" |
   const map: Array<[RegExp, string, "ok" | "muted" | "warn"]> = [
     [/^waiting for next bar$/, `Waiting for the next ${tfLabel} candle to close.`, "muted"],
     [/^hold$/, "Checked the latest candle: no new trade signal.", "muted"],
+    [/^hold: in a (buy|sell) trade$/, `Checked the latest candle: holding its ${r.match(/(buy|sell)/)?.[1]?.toUpperCase() ?? ""} trade.`, "muted"],
+    [
+      /^hold: (buy|sell) signal from an earlier candle/,
+      `Its ${r.match(/(buy|sell)/)?.[1]?.toUpperCase() ?? ""} signal started on an earlier candle, before this bot could act. It waits for that to finish and a fresh signal to start, so it doesn't enter late.`,
+      "muted",
+    ],
     [/^(buy|sell)$/, `Sent a ${r.toUpperCase()} order on the latest candle.`, "ok"],
     [/^closed$/, "Closed its position on the latest candle.", "ok"],
     [/^not enough data$/, "Not enough price history for this market and timeframe yet.", "warn"],
