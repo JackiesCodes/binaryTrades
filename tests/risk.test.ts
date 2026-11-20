@@ -26,6 +26,13 @@ describe("checkRisk", () => {
     expect(checkRisk({ ...base, equity: 2_000, bookEquity: 9_700 })).toMatchObject({ ok: false, breach: "daily_loss" });
   });
 
+  it("risks a fixed amount when the bot sets one, still capped at 5% of the account", () => {
+    expect(checkRisk({ ...base, bot: { ...bot, risk_amount: 25 } })).toEqual({ ok: true, riskAmount: 25 });
+    // 5% of 300 is 15, so a $25 fixed risk is cut to $15 on a small account.
+    expect(checkRisk({ ...base, equity: 300, bot: { ...bot, risk_amount: 25 } })).toEqual({ ok: true, riskAmount: 15 });
+    expect(checkRisk({ ...base, bot: { ...bot, risk_amount: null } })).toEqual({ ok: true, riskAmount: 100 });
+  });
+
   it("caps per-trade risk at 5%", () => {
     expect(checkRisk({ ...base, bot: { ...bot, risk_percent: 20 } })).toEqual({ ok: true, riskAmount: 500 });
   });

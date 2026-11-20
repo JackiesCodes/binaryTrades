@@ -327,6 +327,14 @@ alter table market_data enable row level security;
 alter table bots add column if not exists challenge jsonb;
 `,
   },
+  {
+    file: "0008_fixed_risk.sql",
+    sql: `-- 0008: bots can risk a fixed amount per trade (e.g. $25) instead of a % of the account.
+-- Idempotent: safe to run more than once.
+
+alter table bots add column if not exists risk_amount numeric;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -342,4 +350,6 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
   "0006_broker_prices.sql": "select to_regclass('public.market_data') is not null as done",
   "0007_challenges.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'challenge') as done",
+  "0008_fixed_risk.sql":
+    "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'risk_amount') as done",
 };

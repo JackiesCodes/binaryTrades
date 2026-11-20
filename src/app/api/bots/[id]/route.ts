@@ -16,6 +16,8 @@ const patchSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   broker_account_id: z.string().min(1).optional(),
   risk_percent: z.coerce.number().min(0.1).max(5).optional(),
+  /** Fixed risk per trade in the account's currency; null switches back to risk_percent. */
+  risk_amount: z.coerce.number().positive().max(1_000_000).nullable().optional(),
   deriv_multiplier: z.coerce.number().int().min(1).max(5000).optional(),
   timeframe: z.coerce.number().int().positive().optional(),
   price_source: z.enum(["deriv", "broker"]).optional(),

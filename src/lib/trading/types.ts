@@ -60,6 +60,8 @@ export interface Bot {
   status: BotStatus;
   paused_reason: string | null;
   risk_percent: number;
+  /** Fixed risk per trade in the account's currency; when set it replaces risk_percent. Capped at 5% of the account. */
+  risk_amount?: number | null;
   /** Deriv multiplier contracts only. */
   deriv_multiplier: number;
   /** MT5 magic number stamped on every order this bot sends. */

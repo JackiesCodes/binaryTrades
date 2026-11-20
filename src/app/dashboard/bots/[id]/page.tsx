@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 
-import { WebhookSetup, botKind, botStats, useBotActions } from "@/components/app/bot-parts";
+import { RiskField, WebhookSetup, botKind, botStats, riskBody, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
 import { ChallengePanel } from "@/components/app/challenge";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
@@ -47,15 +47,15 @@ function BotView({ bot }: { bot: Bot }) {
   const [list, setList] = useState<"open" | "closed">("open");
   const challengeOn = Boolean(bot.challenge && !bot.challenge.ended_at);
   const [panel, setPanel] = useState<"settings" | "manual" | "challenge">(challengeOn ? "challenge" : "settings");
-  const [risk, setRisk] = useState(String(bot.risk_percent));
+  const [risk, setRisk] = useState<RiskValue>(() => riskValueOf(bot));
   const [account, setAccount] = useState(bot.broker_account_id ?? "");
   const [selected, setSelected] = useState<Trade | null>(null);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
-    setRisk(String(bot.risk_percent));
+    setRisk(riskValueOf(bot));
     setAccount(bot.broker_account_id ?? "");
-  }, [bot.risk_percent, bot.broker_account_id]);
+  }, [bot.risk_percent, bot.risk_amount, bot.broker_account_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!state) return null;
   const s = botStats(bot, state.open_trades, state.closed_trades);
@@ -68,14 +68,17 @@ function BotView({ bot }: { bot: Bot }) {
   const chartTrades = s.trades.filter((t) => Date.parse(t.opened_at) / 1000 >= from);
   const market = DATA_SYMBOLS.find((d) => d.value === bot.data_symbol)?.label ?? bot.data_symbol;
   const last = s.open[0]?.current_price;
-  const dirty = Number(risk) !== bot.risk_percent || account !== (bot.broker_account_id ?? "");
+  const savedRisk = riskBody(riskValueOf(bot));
+  const nextRisk = riskBody(risk);
+  const riskChanged = nextRisk.risk_percent !== savedRisk.risk_percent || nextRisk.risk_amount !== savedRisk.risk_amount;
+  const dirty = riskChanged || account !== (bot.broker_account_id ?? "");
   const tv = bot.source === "tradingview" || /function\s+onAlert\s*\(/.test(bot.strategy?.code ?? "");
   const list_ = list === "open" ? s.open : s.closed.slice().reverse();
 
   const save = () =>
     patch(
       {
-        ...(Number(risk) !== bot.risk_percent ? { risk_percent: Number(risk) } : {}),
+        ...(riskChanged ? nextRisk : {}),
         ...(account !== (bot.broker_account_id ?? "") ? { broker_account_id: account } : {}),
       },
       "Settings saved",
@@ -99,7 +102,7 @@ function BotView({ bot }: { bot: Bot }) {
             { label: "Win rate", value: s.winRate !== null ? `${s.winRate}% · ${s.closed.length}` : "—" },
             challengeOn
               ? { label: "Risk · challenge", value: `${bot.challenge!.risk_percent}%`, tone: "text-gold" }
-              : { label: "Risk", value: `${bot.risk_percent}%` },
+              : { label: "Risk", value: riskLabel(bot, broker?.currency) },
             { label: "Last signal", value: bot.last_signal_at ? timeAgo(bot.last_signal_at) : "—" },
           ]}
         />
@@ -140,10 +143,7 @@ function BotView({ bot }: { bot: Bot }) {
           ) : panel === "settings" || panel === "challenge" ? (
             <>
               <FieldBox>
-                <label className="grid gap-1.5">
-                  <span className="text-xs text-muted-foreground">Risk per trade (%)</span>
-                  <Input type="number" step="0.1" min="0.1" max="5" value={risk} onChange={(e) => setRisk(e.target.value)} />
-                </label>
+                <RiskField value={risk} onChange={setRisk} currency={broker?.currency} />
                 <label className="grid gap-1.5">
                   <span className="text-xs text-muted-foreground">
                     Account{s.open.length ? " · close its positions to change" : ""}

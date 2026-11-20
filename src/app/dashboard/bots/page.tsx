@@ -5,7 +5,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bot as BotIcon, ExternalLink, Pause, Play } from "lucide-react";
 
-import { BotForm, botKind, botStats, useBotActions } from "@/components/app/bot-parts";
+import { BotForm, botKind, botStats, riskLabel, useBotActions } from "@/components/app/bot-parts";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { KillSwitchButton } from "@/components/app/kill-switch";
 import { EmptyState, PageSkeleton } from "@/components/app/widgets";
@@ -147,7 +147,7 @@ function BotRow({ bot }: { bot: Bot }) {
           {[
             ["Market", bot.symbol],
             ["Timeframe", timeframeLabel(bot.timeframe)],
-            ["Risk", `${bot.risk_percent}%`],
+            ["Risk", riskLabel(bot, broker?.currency)],
             ["Trades · won", `${s.closed.length}${s.winRate !== null ? ` · ${s.winRate}%` : ""}`],
           ].map(([k, v]) => (
             <div key={k} className="min-w-0">

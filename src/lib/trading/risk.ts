@@ -55,9 +55,10 @@ export function checkRisk(input: RiskInput): RiskDecision {
     return { ok: false, reason: "Bot already has its maximum open trades" };
   }
 
-  const riskPercent = challenge
-    ? Math.min(challenge.risk_percent, CHALLENGE_MAX_RISK)
-    : Math.min(bot.risk_percent || settings.default_risk_percent, 5);
+  if (challenge) return { ok: true, riskAmount: (equity * Math.min(challenge.risk_percent, CHALLENGE_MAX_RISK)) / 100 };
+  // A fixed amount per trade (e.g. $25) still never exceeds the 5% cap.
+  if (bot.risk_amount && bot.risk_amount > 0) return { ok: true, riskAmount: Math.min(bot.risk_amount, equity * 0.05) };
+  const riskPercent = Math.min(bot.risk_percent || settings.default_risk_percent, 5);
   return { ok: true, riskAmount: (equity * riskPercent) / 100 };
 }
 

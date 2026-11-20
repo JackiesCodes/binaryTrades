@@ -8,6 +8,7 @@ import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, Tr
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 import { EquityChart } from "@/components/app/equity-chart";
+import { RiskField, riskBody, riskValueOf, type RiskValue } from "@/components/app/bot-parts";
 import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
 import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
@@ -487,7 +488,7 @@ function DeployPanel({
   const [mt5Symbol, setMt5Symbol] = useState("");
   const [mt5Edited, setMt5Edited] = useState(false);
   const [priceSource, setPriceSource] = useState<"broker" | "deriv">("broker");
-  const [risk, setRisk] = useState(1);
+  const [risk, setRisk] = useState<RiskValue>(riskValueOf());
   const [multiplier, setMultiplier] = useState(100);
   const [startNow, setStartNow] = useState(true);
   const isMt5 = broker?.kind === "mt5";
@@ -537,7 +538,7 @@ function DeployPanel({
         symbol: isMt5 ? mt5Symbol.trim() : dataSymbol,
         data_symbol: dataSymbol,
         timeframe,
-        risk_percent: risk,
+        ...riskBody(risk),
         deriv_multiplier: multiplier,
         price_source: isMt5 ? priceSource : "deriv",
         start: startNow,
@@ -597,16 +598,12 @@ function DeployPanel({
             />
           </Field>
         )}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Risk per trade %">
-            <Input type="number" step="0.1" min="0.1" max="5" value={risk} onChange={(e) => setRisk(Number(e.target.value))} />
+        <RiskField value={risk} onChange={setRisk} currency={broker?.currency} />
+        {!isMt5 && (
+          <Field label="Multiplier">
+            <Input type="number" step="1" min="1" value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
           </Field>
-          {!isMt5 && (
-            <Field label="Multiplier">
-              <Input type="number" step="1" min="1" value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
-            </Field>
-          )}
-        </div>
+        )}
       </FieldBox>
         <p className="text-xs text-muted-foreground">
           Trades {isMt5 ? mt5Symbol || "the MT5 symbol" : DATA_SYMBOLS.find((d) => d.value === dataSymbol)?.label ?? dataSymbol} on{" "}

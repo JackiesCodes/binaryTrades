@@ -133,7 +133,7 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
   const [strategyId, setStrategyId] = useState(presetStrategy ?? STRATEGIES[0]!.id);
   const def = getStrategy(strategyId)!;
   const [strategyParams, setStrategyParams] = useState<Record<string, number>>({ ...defaultParams(def), ...presetParams });
-  const [risk, setRisk] = useState(1);
+  const [risk, setRisk] = useState<RiskValue>(riskValueOf());
   const [multiplier, setMultiplier] = useState(100);
   const [priceSource, setPriceSource] = useState<"broker" | "deriv">("broker");
   const [busy, setBusy] = useState(false);
@@ -163,7 +163,7 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
         timeframe,
         strategy_id: source === "builtin" ? strategyId : undefined,
         strategy_params: source === "builtin" ? strategyParams : undefined,
-        risk_percent: risk,
+        ...riskBody(risk),
         deriv_multiplier: multiplier,
       });
       await refresh();
@@ -299,10 +299,8 @@ export function BotForm({ brokers, onDone }: { brokers: PublicBroker[]; onDone: 
         </div>
       )}
 
+      <RiskField value={risk} onChange={setRisk} currency={broker?.currency} />
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Risk per trade (%)" hint="Loss if the stop is hit, as % of equity. 0.5–1% is sensible.">
-          <Input type="number" step="0.1" min="0.1" max="5" value={risk} onChange={(e) => setRisk(Number(e.target.value))} />
-        </Field>
         {broker?.kind === "deriv" && (
           <Field label="Deriv multiplier" hint="Must be a value Deriv allows for this market.">
             <Input type="number" min="1" value={multiplier} onChange={(e) => setMultiplier(Number(e.target.value))} />
@@ -360,3 +358,81 @@ export function WebhookSetup({ bot }: { bot: Bot }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Risk per trade: a % of the account, or a fixed amount (e.g. $25)
+
+export interface RiskValue {
+  mode: "percent" | "amount";
+  percent: number;
+  amount: number;
+}
+
+export function riskValueOf(bot?: Pick<Bot, "risk_percent" | "risk_amount">): RiskValue {
+  return bot?.risk_amount
+    ? { mode: "amount", percent: bot.risk_percent, amount: bot.risk_amount }
+    : { mode: "percent", percent: bot?.risk_percent ?? 1, amount: 25 };
+}
+
+/** The API fields for a RiskValue. */
+export function riskBody(r: RiskValue) {
+  return { risk_percent: r.percent, risk_amount: r.mode === "amount" ? r.amount : null };
+}
+
+/** "1%" or "$25" for a bot. */
+export function riskLabel(bot: Pick<Bot, "risk_percent" | "risk_amount">, currency = "USD") {
+  if (!bot.risk_amount) return `${bot.risk_percent}%`;
+  const symbol = currency === "USD" ? "$" : `${currency} `;
+  return `${symbol}${bot.risk_amount}`;
+}
+
+export function RiskField({ value, onChange, currency = "USD" }: { value: RiskValue; onChange: (v: RiskValue) => void; currency?: string }) {
+  const symbol = currency === "USD" ? "$" : currency;
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Risk per trade</span>
+        <div role="group" aria-label="Risk per trade as" className="flex rounded-lg bg-black/30 p-0.5 text-[11px]">
+          {(["percent", "amount"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={value.mode === m}
+              onClick={() => onChange({ ...value, mode: m })}
+              className={cn(
+                "min-h-7 rounded-md px-2.5 font-medium",
+                value.mode === m ? "bg-white/[0.1] text-ivory" : "text-muted-foreground hover:text-ivory",
+              )}
+            >
+              {m === "percent" ? "% of account" : `Fixed ${symbol}`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {value.mode === "percent" ? (
+        <Input
+          type="number"
+          step="0.1"
+          min="0.1"
+          max="5"
+          aria-label="Risk per trade, % of the account"
+          value={value.percent}
+          onChange={(e) => onChange({ ...value, percent: Number(e.target.value) })}
+        />
+      ) : (
+        <Input
+          type="number"
+          step="1"
+          min="1"
+          aria-label={`Risk per trade, ${currency}`}
+          value={value.amount}
+          onChange={(e) => onChange({ ...value, amount: Number(e.target.value) })}
+        />
+      )}
+      <span className="text-[11px] text-muted-foreground">
+        {value.mode === "percent"
+          ? "Loss if the stop is hit, as % of equity. 0.5–1% is sensible; hard-capped at 5%."
+          : `Each trade loses about ${symbol}${value.amount || 0} if its stop is hit (never more than 5% of the account).`}
+      </span>
+    </div>
+  );
+}

@@ -22,6 +22,7 @@ const botInputSchema = z.object({
   strategy_id: z.string().optional(),
   strategy_params: z.record(z.coerce.number()).optional(),
   risk_percent: z.coerce.number().min(0.1).max(5).default(1),
+  risk_amount: z.coerce.number().positive().max(1_000_000).nullable().optional(),
   deriv_multiplier: z.coerce.number().int().min(1).max(5000).default(100),
   /** "broker": read candles from the bot's own MT5 account (bridge EA). */
   price_source: z.enum(["deriv", "broker"]).default("deriv"),
@@ -77,6 +78,7 @@ export const POST = withUser(async (user, request) => {
     status: startNow ? "running" : "paused",
     paused_reason: startNow ? null : input.start ? "Kill switch is on — start the bot after releasing it" : "New bot — press Start when ready",
     risk_percent: input.risk_percent,
+    risk_amount: input.risk_amount ?? null,
     deriv_multiplier: input.deriv_multiplier,
     magic: nextMagic(existing),
     webhook_passphrase: randomToken(18),
