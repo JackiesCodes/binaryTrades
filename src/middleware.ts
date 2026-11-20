@@ -53,6 +53,8 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
+  // Only the dashboard needs signing in; any other address is public or doesn't exist (→ "Page not found").
+  if (pathname !== "/dashboard" && !pathname.startsWith("/dashboard/")) return NextResponse.next();
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set("next", pathname);
   return NextResponse.redirect(loginUrl);

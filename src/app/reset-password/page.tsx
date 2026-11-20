@@ -48,6 +48,11 @@ function ResetForm() {
         </Link>
       }
     >
+      {!token ? (
+        <p role="alert" className="rounded-lg bg-gold/10 px-3 py-2.5 text-sm text-gold">
+          This page needs the link from your password-reset email. Open that link, or ask for a new one below.
+        </p>
+      ) : (
       <form onSubmit={submit} className="space-y-4">
         <Field label="New password" hint="At least 10 characters.">
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" autoFocus required />
@@ -64,6 +69,7 @@ function ResetForm() {
           {busy ? "Saving…" : "Save new password"}
         </Button>
       </form>
+      )}
     </AuthShell>
   );
 }

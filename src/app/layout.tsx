@@ -17,7 +17,7 @@ const fontMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "https://binarytrades.trading"),
-  title: "binaryTrades — Automated trading with risk control",
+  title: { default: "binaryTrades — Automated trading with risk control", template: "%s · binaryTrades" },
   description:
     "Connect Deriv and MetaTrader 5 accounts, run strategy bots and your own scripts, execute TradingView alerts, and enforce risk limits — from one dashboard.",
   openGraph: {

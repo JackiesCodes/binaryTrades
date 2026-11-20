@@ -74,6 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <FeedbackProvider>
       <DashboardProvider>
         <div className="flex min-h-[100dvh] flex-col">
+          <PageTitle />
           <TopBar />
           <div className="flex flex-1">
             <Rail />
@@ -86,6 +87,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </DashboardProvider>
     </FeedbackProvider>
   );
+}
+
+/** Names the browser tab after the page ("Bots · binaryTrades"), or after the bot on a bot's page. */
+function PageTitle() {
+  const pathname = usePathname();
+  const { state } = useDashboard();
+  const botId = pathname.match(/^\/dashboard\/bots\/([^/]+)/)?.[1];
+  const botName = botId ? state?.bots.find((b) => b.id === botId)?.name : undefined;
+  const page = [...ALL_NAV, ACCOUNT_NAV, ADMIN_NAV].find((n) => n.href === pathname)?.label;
+  const title = botName ?? (botId ? "Bot" : page);
+  useEffect(() => {
+    document.title = title ? `${title} · binaryTrades` : "binaryTrades";
+  }, [title]);
+  return null;
 }
 
 async function logout() {

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { LEGAL_UPDATED } from "@/components/site/legal";
 
-export const metadata: Metadata = { title: "Risk Disclosure — binaryTrades" };
+export const metadata: Metadata = { title: "Risk Disclosure" };
 
 export default function RiskPage() {
   return (

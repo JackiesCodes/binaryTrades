@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { Contact, LEGAL_UPDATED } from "@/components/site/legal";
 
-export const metadata: Metadata = { title: "Privacy Policy — binaryTrades" };
+export const metadata: Metadata = { title: "Privacy Policy" };
 
 export default function PrivacyPage() {
   return (

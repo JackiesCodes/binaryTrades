@@ -387,7 +387,11 @@ export function riskError(r: RiskValue): string | null {
 
 /** The API fields for a RiskValue. */
 export function riskBody(r: RiskValue) {
-  return { risk_percent: r.percent, risk_amount: r.mode === "amount" ? r.amount : null };
+  if (r.mode === "percent") return { risk_percent: r.percent, risk_amount: null };
+  // With a fixed amount the % isn't used, but the API still checks it: never send a stale out-of-range
+  // value (e.g. 25 typed in the % box before switching to Fixed $).
+  const percent = Number.isFinite(r.percent) ? Math.min(5, Math.max(0.1, r.percent)) : 1;
+  return { risk_percent: percent, risk_amount: r.amount };
 }
 
 /** "1%" or "$25" for a bot. */

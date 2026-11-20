@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { Contact, LEGAL_UPDATED } from "@/components/site/legal";
 
-export const metadata: Metadata = { title: "Terms of Use — binaryTrades" };
+export const metadata: Metadata = { title: "Terms of Use" };
 
 export default function TermsPage() {
   return (

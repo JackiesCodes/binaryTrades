@@ -269,6 +269,8 @@ function ScriptStudio() {
               params={params}
               dataSymbol={dataSymbol}
               timeframe={timeframe}
+              onDataSymbol={setDataSymbol}
+              onTimeframe={setTimeframe}
               disabled={disabled}
               onError={setError}
               onBusy={(b) => setBusy(b ? "deploy" : null)}
@@ -464,6 +466,8 @@ function DeployPanel({
   params,
   dataSymbol,
   timeframe,
+  onDataSymbol,
+  onTimeframe,
   disabled,
   busy,
   onBusy,
@@ -474,6 +478,8 @@ function DeployPanel({
   params: Record<string, number>;
   dataSymbol: string;
   timeframe: number;
+  onDataSymbol: (v: string) => void;
+  onTimeframe: (v: number) => void;
   disabled: boolean;
   busy: boolean;
   onBusy: (b: boolean) => void;
@@ -556,6 +562,27 @@ function DeployPanel({
   return (
     <div className="space-y-3">
       <FieldBox>
+        {/* The same market and timeframe as the Test tab, shown here so the bot is created on the one you mean. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Market" className="col-span-2">
+            <select className={selectClass} value={dataSymbol} onChange={(e) => onDataSymbol(e.target.value)}>
+              {DATA_SYMBOLS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Timeframe" className="col-span-2">
+            <select className={selectClass} value={timeframe} onChange={(e) => onTimeframe(Number(e.target.value))}>
+              {TIMEFRAMES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
         <Field label="Bot name">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Vol 75 EMA cross" maxLength={60} />
         </Field>
@@ -607,7 +634,7 @@ function DeployPanel({
       </FieldBox>
         <p className="text-xs text-muted-foreground">
           Trades {isMt5 ? mt5Symbol || "the MT5 symbol" : DATA_SYMBOLS.find((d) => d.value === dataSymbol)?.label ?? dataSymbol} on{" "}
-          {timeframeLabel(timeframe)} candles, the market and timeframe from the Test tab. Stops come from your script or the stop setting there.
+          {timeframeLabel(timeframe)} candles (the same market and timeframe as the Test tab). Stops come from your script or the stop setting on the Test tab.
           If the script has onAlert, find its TradingView webhook on the bot&apos;s page.
         </p>
         <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm">
