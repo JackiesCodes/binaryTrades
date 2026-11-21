@@ -228,7 +228,15 @@ export function DrawingLayer({
     const sel = !preview && d.id === selected;
     const width = sel ? 2.5 : 1.5;
     const hit = (props: React.SVGProps<SVGLineElement>) =>
-      preview ? null : <line {...props} stroke="transparent" strokeWidth={HIT} style={{ pointerEvents: tool ? "none" : "stroke", cursor: "move" }} onPointerDown={(e) => startDrag(e, d, null)} />;
+      preview ? null : (
+        <line
+          {...props}
+          stroke="transparent"
+          strokeWidth={HIT}
+          style={{ pointerEvents: tool ? "none" : "stroke", cursor: "move" }}
+          onPointerDown={(e) => startDrag(e, d, null)}
+        />
+      );
     const handle = (i: number, x: number, y: number) =>
       sel ? (
         <g key={`h${i}`} style={{ cursor: "grab", pointerEvents: "all" }} onPointerDown={(e) => startDrag(e, d, i)}>
@@ -275,14 +283,24 @@ export function DrawingLayer({
     const y618 = levels.find((l) => l.ratio === 0.618)?.y;
     return (
       <g key={d.id} data-drawing={d.id}>
-        {y382 != null && y618 != null && <rect x={left} y={Math.min(y382, y618)} width={right - left} height={Math.abs(y618 - y382)} fill={color} opacity={0.08} />}
+        {y382 != null && y618 != null && (
+          <rect x={left} y={Math.min(y382, y618)} width={right - left} height={Math.abs(y618 - y382)} fill={color} opacity={0.08} />
+        )}
         <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
         {hit({ x1: a.x, y1: a.y, x2: b.x, y2: b.y })}
         {levels.map((l) =>
           l.y === null ? null : (
             <g key={l.ratio}>
               {hit({ x1: left, y1: l.y, x2: right, y2: l.y })}
-              <line x1={left} y1={l.y} x2={right} y2={l.y} stroke={color} strokeWidth={l.ratio === 0 || l.ratio === 1 ? width : 1} opacity={l.ratio === 0.5 ? 0.6 : 0.9} />
+              <line
+                x1={left}
+                y1={l.y}
+                x2={right}
+                y2={l.y}
+                stroke={color}
+                strokeWidth={l.ratio === 0 || l.ratio === 1 ? width : 1}
+                opacity={l.ratio === 0.5 ? 0.6 : 0.9}
+              />
               <text x={left + 4} y={l.y - 3} fontSize={10} fill={color} style={{ fontFamily: "var(--font-mono, monospace)" }}>
                 {l.ratio} ({formatPrice(l.price, decimals)})
               </text>
@@ -306,7 +324,11 @@ export function DrawingLayer({
         className="absolute left-0 top-0 z-[5]"
         width={pane.width}
         height={pane.height}
-        style={{ pointerEvents: placing || drag.current ? "all" : "none", cursor: placing ? "crosshair" : undefined, touchAction: placing ? "none" : undefined }}
+        style={{
+          pointerEvents: placing || drag.current ? "all" : "none",
+          cursor: placing ? "crosshair" : undefined,
+          touchAction: placing ? "none" : undefined,
+        }}
         onPointerDown={onPlaceDown}
         onPointerMove={(e) => (drag.current ? onDragMove(e) : onPlaceMove(e))}
         onPointerUp={(e) => (drag.current ? onDragEnd() : onPlaceUp(e))}
@@ -317,17 +339,35 @@ export function DrawingLayer({
         {preview && <g opacity={0.8}>{renderDrawing(preview, true)}</g>}
       </svg>
       {placing && (
-        <div data-drawing-ui className="pointer-events-none absolute bottom-3 left-1/2 z-20 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1 text-xs text-[var(--mk-text)] shadow-glass" role="status">
-          {DRAW_TOOLS.find((t) => t.id === tool)!.label}: {tool === "hline" ? "tap the price" : pending ? "tap the second point" : "tap or drag from the first point"} · Esc to cancel
+        <div
+          data-drawing-ui
+          className="pointer-events-none absolute bottom-3 left-1/2 z-20 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1 text-xs text-[var(--mk-text)] shadow-glass"
+          role="status"
+        >
+          {DRAW_TOOLS.find((t) => t.id === tool)!.label}:{" "}
+          {tool === "hline" ? "tap the price" : pending ? "tap the second point" : "tap or drag from the first point"} · Esc to cancel
         </div>
       )}
       {selectedDrawing && !placing && (
-        <div data-drawing-ui className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--mk-border)] bg-[var(--mk-panel)] py-1 pl-3 pr-1 text-xs text-[var(--mk-text)] shadow-glass">
+        <div
+          data-drawing-ui
+          className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--mk-border)] bg-[var(--mk-panel)] py-1 pl-3 pr-1 text-xs text-[var(--mk-text)] shadow-glass"
+        >
           <span>{label(selectedDrawing)}</span>
-          <button type="button" onClick={() => remove(selectedDrawing.id)} className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-[var(--mk-down)] hover:bg-[var(--mk-raised)]" aria-label={`Delete ${label(selectedDrawing)}`}>
+          <button
+            type="button"
+            onClick={() => remove(selectedDrawing.id)}
+            className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-[var(--mk-down)] hover:bg-[var(--mk-raised)]"
+            aria-label={`Delete ${label(selectedDrawing)}`}
+          >
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </button>
-          <button type="button" onClick={() => setSelected(null)} className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--mk-muted)] hover:bg-[var(--mk-raised)]" aria-label="Deselect">
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--mk-muted)] hover:bg-[var(--mk-raised)]"
+            aria-label="Deselect"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>

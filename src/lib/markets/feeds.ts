@@ -93,7 +93,16 @@ class DerivFeed implements Feed {
   private nextId = 1;
   private pending = new Map<number, { resolve: (j: Json) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private subs = new Map<number, DerivSub>();
-  private ticks = new Map<number, { code: string; derivId: string | null; onPrice: (price: number | null, closed: boolean) => void }>();
+  /** One live price subscription per market (Deriv refuses duplicates), shared by any number of listeners. */
+  private ticks = new Map<
+    number,
+    {
+      code: string;
+      derivId: string | null;
+      listeners: Set<(price: number | null, closed: boolean) => void>;
+      last: { price: number | null; closed: boolean } | null;
+    }
+  >();
   private status: SocketStatus = "connecting";
 
   private ensure(): ReconnectingSocket {
@@ -127,12 +136,18 @@ class DerivFeed implements Feed {
       const t = this.ticks.get(reqId)!;
       const err = j.error as Json | undefined;
       if (err) {
-        if (err.code === "MarketIsClosed") t.onPrice(null, true);
+        if (err.code === "MarketIsClosed") {
+          t.last = { price: t.last?.price ?? null, closed: true };
+          for (const l of t.listeners) l(null, true);
+        }
         return;
       }
       const tick = j.tick as Json | undefined;
       t.derivId = String((j.subscription as Json | undefined)?.id ?? tick?.id ?? "") || t.derivId;
-      if (tick && Number.isFinite(Number(tick.quote))) t.onPrice(Number(tick.quote), false);
+      if (tick && Number.isFinite(Number(tick.quote))) {
+        t.last = { price: Number(tick.quote), closed: false };
+        for (const l of t.listeners) l(t.last.price, false);
+      }
       return;
     }
     if (j.msg_type === "ohlc") {
@@ -246,13 +261,22 @@ class DerivFeed implements Feed {
 
   /** Live prices for several markets on the shared connection. */
   watchTicks(code: string, onPrice: (price: number | null, closed: boolean) => void): () => void {
-    const key = this.nextId++;
-    this.ticks.set(key, { code, derivId: null, onPrice });
-    this.ensure().send({ ticks: code, subscribe: 1, req_id: key });
+    let entry = [...this.ticks.entries()].find(([, t]) => t.code === code);
+    if (!entry) {
+      const key = this.nextId++;
+      entry = [key, { code, derivId: null, listeners: new Set(), last: null }];
+      this.ticks.set(key, entry[1]);
+      this.ensure().send({ ticks: code, subscribe: 1, req_id: key });
+    } else if (entry[1].last) {
+      onPrice(entry[1].last.price, entry[1].last.closed);
+    }
+    const [key, t] = entry;
+    t.listeners.add(onPrice);
     return () => {
-      const t = this.ticks.get(key);
+      t.listeners.delete(onPrice);
+      if (t.listeners.size) return;
       this.ticks.delete(key);
-      if (t?.derivId) this.socket?.send({ forget: t.derivId });
+      if (t.derivId) this.socket?.send({ forget: t.derivId });
     };
   }
 
@@ -362,7 +386,9 @@ class BinanceFeed implements Feed {
   watchQuotes(codes: string[], onQuote: (code: string, q: Quote) => void): () => void {
     let stopped = false;
     const quote = (c: number, o: number): Quote => ({ price: c, change: o ? ((c - o) / o) * 100 : null });
-    this.get<Array<{ symbol: string; lastPrice: string; openPrice: string }>>(`/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(codes))}&type=MINI`)
+    this.get<Array<{ symbol: string; lastPrice: string; openPrice: string }>>(
+      `/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(codes))}&type=MINI`,
+    )
       .then((rows) => {
         if (!stopped) for (const r of rows) onQuote(r.symbol, quote(Number(r.lastPrice), Number(r.openPrice)));
       })
@@ -414,7 +440,14 @@ class MockFeed implements Feed {
     for (let i = 299; i >= 0; i--) {
       const open = p;
       const close = open * (1 + (rnd() - 0.5) * 0.01);
-      bars.push({ time: now - i * s, open, close, high: Math.max(open, close) * (1 + rnd() * 0.003), low: Math.min(open, close) * (1 - rnd() * 0.003), volume: Math.round(rnd() * 1000) });
+      bars.push({
+        time: now - i * s,
+        open,
+        close,
+        high: Math.max(open, close) * (1 + rnd() * 0.003),
+        low: Math.min(open, close) * (1 - rnd() * 0.003),
+        volume: Math.round(rnd() * 1000),
+      });
       p = close;
     }
     this.price.set(code, p);
@@ -431,7 +464,10 @@ class MockFeed implements Feed {
       const t = Math.floor(Date.now() / 1000 / s) * s;
       const p = this.seed(code) * (1 + (Math.random() - 0.5) * 0.002);
       this.price.set(code, p);
-      bar = bar && bar.time === t ? { ...bar, high: Math.max(bar.high, p), low: Math.min(bar.low, p), close: p, volume: (bar.volume ?? 0) + 5 } : { time: t, open: p, high: p, low: p, close: p, volume: 5 };
+      bar =
+        bar && bar.time === t
+          ? { ...bar, high: Math.max(bar.high, p), low: Math.min(bar.low, p), close: p, volume: (bar.volume ?? 0) + 5 }
+          : { time: t, open: p, high: p, low: p, close: p, volume: 5 };
       h.onBar(bar);
     }, 500);
     const drop = () => {
@@ -468,7 +504,10 @@ class MockFeed implements Feed {
   }
 
   async catalog() {
-    return [...STARTER_SYMBOLS, { id: "binance:NOPEUSDT", provider: "binance" as const, code: "NOPEUSDT", name: "NOPE/USDT (test: not found)", group: "Crypto", hasVolume: true }];
+    return [
+      ...STARTER_SYMBOLS,
+      { id: "binance:NOPEUSDT", provider: "binance" as const, code: "NOPEUSDT", name: "NOPE/USDT (test: not found)", group: "Crypto", hasVolume: true },
+    ];
   }
 }
 

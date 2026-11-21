@@ -250,3 +250,14 @@ export interface MarketData {
   requested_at: string | null;
   updated_at: string;
 }
+
+/** A user's saved Markets page (one row per user; id = the user's id). Shapes are checked by lib/markets/state. */
+export interface MarketsState {
+  id: string;
+  user_id: string;
+  watchlist: unknown[] | null;
+  indicators: unknown[] | null;
+  drawings: Record<string, unknown> | null;
+  alerts: unknown[] | null;
+  updated_at: string;
+}

@@ -27,6 +27,13 @@ export interface ReconnectingSocketOptions {
   timers?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout; setInterval: typeof setInterval; clearInterval: typeof clearInterval };
 }
 
+const BROWSER_TIMERS = {
+  setTimeout: ((fn: () => void, ms?: number) => setTimeout(fn, ms)) as typeof setTimeout,
+  clearTimeout: ((id: ReturnType<typeof setTimeout>) => clearTimeout(id)) as typeof clearTimeout,
+  setInterval: ((fn: () => void, ms?: number) => setInterval(fn, ms)) as typeof setInterval,
+  clearInterval: ((id: ReturnType<typeof setInterval>) => clearInterval(id)) as typeof clearInterval,
+};
+
 /**
  * A WebSocket that reconnects with exponential backoff (1s, 2s, 4s … 30s) when it drops,
  * reports live / reconnecting status, and can be closed for good with close().
@@ -46,7 +53,9 @@ export class ReconnectingSocket {
   }
 
   private get t() {
-    return this.opts.timers ?? { setTimeout, clearTimeout, setInterval, clearInterval };
+    // Browsers throw "Illegal invocation" if their timer functions are called as methods of another
+    // object, so the defaults are wrapped rather than copied onto one.
+    return this.opts.timers ?? BROWSER_TIMERS;
   }
 
   private setStatus(s: SocketStatus) {

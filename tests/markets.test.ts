@@ -178,3 +178,25 @@ describe("reconnecting socket", () => {
     expect(queue).toHaveLength(0); // no retry after close
   });
 });
+
+describe("reconnecting socket timers", () => {
+  it("calls the default timers as plain functions (browsers throw 'Illegal invocation' otherwise)", () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const seen: unknown[] = [];
+    // A setTimeout that, like a browser's, refuses to run as a method of another object.
+    globalThis.setTimeout = function (this: unknown, fn: () => void, ms?: number) {
+      seen.push(this);
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      return realSetTimeout(fn, ms);
+    } as typeof setTimeout;
+    try {
+      FakeWS.all = [];
+      const s = new ReconnectingSocket({ url: "wss://x", WebSocketImpl: FakeWS, onMessage: () => {} });
+      expect(() => FakeWS.all[0]!.drop()).not.toThrow(); // schedules a retry with setTimeout
+      expect(seen.length).toBe(1);
+      s.close();
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+});

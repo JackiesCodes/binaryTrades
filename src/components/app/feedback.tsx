@@ -24,7 +24,8 @@ interface ConfirmOptions {
 }
 
 interface FeedbackContextValue {
-  toast: (message: string, tone?: ToastTone) => void;
+  /** `ms`: how long it stays (default 3.5 s, errors 6 s). */
+  toast: (message: string, tone?: ToastTone, ms?: number) => void;
   confirm: (options: ConfirmOptions) => Promise<boolean>;
 }
 
@@ -44,10 +45,10 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   const resolver = useRef<((ok: boolean) => void) | null>(null);
   const nextId = useRef(1);
 
-  const toast = useCallback((message: string, tone: ToastTone = "info") => {
+  const toast = useCallback((message: string, tone: ToastTone = "info", ms?: number) => {
     const id = nextId.current++;
     setToasts((t) => [...t.slice(-2), { id, tone, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === "error" ? 6000 : 3500);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms ?? (tone === "error" ? 6000 : 3500));
   }, []);
 
   const confirm = useCallback((options: ConfirmOptions) => {

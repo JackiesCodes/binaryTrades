@@ -55,6 +55,8 @@ interface Props {
   onDrawingsChange: (next: Drawing[]) => void;
   tool: DrawTool | null;
   onToolDone: () => void;
+  /** Waiting price alerts on this market, drawn as dashed lines. */
+  alertLines?: Array<{ id: string; price: number; op: "above" | "below" }>;
   className?: string;
 }
 
@@ -103,7 +105,7 @@ const seriesKey = (c: IndicatorConfig) => c.type;
  * and RSI / MACD panes underneath that zoom, scroll and follow the crosshair together.
  */
 export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart(
-  { palette, decimals, hasVolume, title, chartType, indicators, timeframe, drawings, onDrawingsChange, tool, onToolDone, className },
+  { palette, decimals, hasVolume, title, chartType, indicators, timeframe, drawings, onDrawingsChange, tool, onToolDone, alertLines = [], className },
   ref,
 ) {
   const box = useRef<HTMLDivElement>(null);
@@ -171,7 +173,9 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
   const setMainData = () => {
     const t = typeRef.current;
     const data = shown();
-    candleS.current?.setData(t === "candles" || t === "heikin" ? data.map((b) => ({ time: ts(b.time), open: b.open, high: b.high, low: b.low, close: b.close })) : []);
+    candleS.current?.setData(
+      t === "candles" || t === "heikin" ? data.map((b) => ({ time: ts(b.time), open: b.open, high: b.high, low: b.low, close: b.close })) : [],
+    );
     lineS.current?.setData(t === "line" ? bars.current.map((b) => ({ time: ts(b.time), value: b.close })) : []);
     areaS.current?.setData(t === "area" ? bars.current.map((b) => ({ time: ts(b.time), value: b.close })) : []);
     volS.current?.setData(bars.current.map((b) => ({ time: ts(b.time), value: b.volume ?? 0, color: volColor(b) })));
@@ -305,13 +309,24 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
         priceFormat: { type: "price", precision: 2, minMove: 0.01 },
         autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
       });
-      for (const level of [70, 30]) lines.push(s.createPriceLine({ price: level, color: p.muted, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" }));
+      for (const level of [70, 30])
+        lines.push(s.createPriceLine({ price: level, color: p.muted, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" }));
       series.value = s;
     } else {
       primary = "macd";
-      series.histogram = pc.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "price", precision: Math.max(2, decimals), minMove: 1 / 10 ** Math.max(2, decimals) } });
+      series.histogram = pc.addHistogramSeries({
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat: { type: "price", precision: Math.max(2, decimals), minMove: 1 / 10 ** Math.max(2, decimals) },
+      });
       series.macd = pc.addLineSeries({ color: c.color, lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
-      series.signal = pc.addLineSeries({ color: c.color.toLowerCase() === SIGNAL_COLOR.toLowerCase() ? p.accent : SIGNAL_COLOR, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      series.signal = pc.addLineSeries({
+        color: c.color.toLowerCase() === SIGNAL_COLOR.toLowerCase() ? p.accent : SIGNAL_COLOR,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
     }
     pc.timeScale().subscribeVisibleLogicalRangeChange(onPaneRange(pc));
     pc.subscribeCrosshairMove(onCross(pc));
@@ -351,7 +366,10 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     scaleWidth.current = 0; // re-measure
     for (const c of allCharts()) c.applyOptions({ rightPriceScale: { minimumWidth: SCALE_WIDTH } });
     // Only the bottom chart shows the time axis.
-    const paneList = list.filter(isPane).map((c) => panes.current.get(c.id)).filter(Boolean) as Pane[];
+    const paneList = list
+      .filter(isPane)
+      .map((c) => panes.current.get(c.id))
+      .filter(Boolean) as Pane[];
     chart.current.applyOptions({ timeScale: { visible: paneList.length === 0 } });
     paneList.forEach((p, i) => p.chart.applyOptions({ timeScale: { visible: i === paneList.length - 1 } }));
     refreshLegend();
@@ -407,7 +425,12 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       priceLineColor: palette.accent,
     });
     lineS.current?.applyOptions({ color: palette.accent, priceLineColor: palette.accent });
-    areaS.current?.applyOptions({ lineColor: palette.accent, topColor: palette.accent + "55", bottomColor: palette.accent + "05", priceLineColor: palette.accent });
+    areaS.current?.applyOptions({
+      lineColor: palette.accent,
+      topColor: palette.accent + "55",
+      bottomColor: palette.accent + "05",
+      priceLineColor: palette.accent,
+    });
     setMainData();
     syncIndicators();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -435,6 +458,34 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     volS.current?.applyOptions({ visible: hasVolume });
     chart.current?.applyOptions({ rightPriceScale: { scaleMargins: { top: 0.08, bottom: hasVolume ? 0.24 : 0.06 } } });
   }, [decimals, hasVolume]);
+
+  // Price alert lines on whichever series is showing.
+  const alertPriceLines = useRef<Array<{ series: AnySeries; line: IPriceLine }>>([]);
+  const alertKey = alertLines.map((a) => `${a.id}:${a.price}:${a.op}`).join("|");
+  useEffect(() => {
+    for (const { series, line } of alertPriceLines.current) {
+      try {
+        series.removePriceLine(line);
+      } catch {
+        // series already gone
+      }
+    }
+    alertPriceLines.current = [];
+    const series = (chartType === "line" ? lineS.current : chartType === "area" ? areaS.current : candleS.current) as AnySeries | null;
+    if (!series) return;
+    for (const a of alertLines) {
+      const line = series.createPriceLine({
+        price: a.price,
+        color: palette.accent,
+        lineWidth: 1,
+        lineStyle: LineStyle.LargeDashed,
+        axisLabelVisible: true,
+        title: a.op === "above" ? "Alert ▲" : "Alert ▼",
+      });
+      alertPriceLines.current.push({ series, line });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alertKey, chartType, palette]);
 
   // Indicators (after the pane containers for new panes are in the DOM).
   useEffect(() => {
@@ -542,7 +593,15 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="relative min-h-[140px] flex-1">
         <div ref={box} className="absolute inset-0" />
-        <DrawingLayer coords={coords} drawings={drawings} onChange={onDrawingsChange} tool={tool} onToolDone={onToolDone} palette={palette} decimals={decimals} />
+        <DrawingLayer
+          coords={coords}
+          drawings={drawings}
+          onChange={onDrawingsChange}
+          tool={tool}
+          onToolDone={onToolDone}
+          palette={palette}
+          decimals={decimals}
+        />
         <div
           data-legend="main"
           className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex max-w-[calc(100%-5.5rem)] flex-col gap-0.5 rounded-lg px-1.5 py-0.5 font-mono text-[10px] text-[var(--mk-muted)] sm:left-2 sm:top-2 sm:py-1 sm:text-xs"
@@ -608,7 +667,11 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
               else paneEls.current.delete(c.id);
             }}
           />
-          <div data-legend={c.type} className="pointer-events-none absolute left-1.5 top-1 z-10 rounded px-1 font-mono text-[10px] text-[var(--mk-muted)] sm:left-2 sm:text-xs" style={{ background: `${palette.panel}d9` }}>
+          <div
+            data-legend={c.type}
+            className="pointer-events-none absolute left-1.5 top-1 z-10 rounded px-1 font-mono text-[10px] text-[var(--mk-muted)] sm:left-2 sm:text-xs"
+            style={{ background: `${palette.panel}d9` }}
+          >
             <span style={{ color: c.color }}>{indicatorLabel(c)}</span>{" "}
             {c.type === "rsi" ? (
               <span className="text-[var(--mk-text)]">{val(c.id, "value", 2)}</span>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_WATCHLIST, MAX_WATCHLIST, sanitizeWatchlist } from "@/components/markets/watchlist";
+import { DEFAULT_WATCHLIST, MAX_WATCHLIST, sanitizeWatchlist } from "@/lib/markets/state";
 import { MAX_DRAWINGS_PER_SYMBOL, fibLevels, logicalToTime, newDrawing, sanitizeDrawingStore, sanitizeDrawings, timeToLogical } from "@/lib/markets/drawings";
 
 describe("drawings", () => {

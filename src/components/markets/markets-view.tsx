@@ -1,18 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
+import { AlertTriangle, Bell, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
 
 import { useFeedback } from "@/components/app/feedback";
 
 import { IndicatorsPanel } from "@/components/markets/indicators-panel";
 import { CHART_TYPES, PriceChart, type ChartType, type PriceChartHandle } from "@/components/markets/price-chart";
 import { SymbolSearch, type SymbolSearchHandle } from "@/components/markets/symbol-search";
-import { MAX_WATCHLIST, Watchlist, sanitizeWatchlist } from "@/components/markets/watchlist";
-import { DRAW_TOOLS, MAX_DRAWINGS_PER_SYMBOL, sanitizeDrawingStore, type DrawTool, type Drawing, type DrawingStore } from "@/lib/markets/drawings";
+import { Watchlist } from "@/components/markets/watchlist";
+import { AlertsPanel } from "@/components/markets/alerts-panel";
+import { useMarketsState, type SyncStatus } from "@/components/markets/use-markets-state";
+import { activeAlerts, alertHit, type PriceAlert } from "@/lib/markets/alerts";
+import { MAX_WATCHLIST } from "@/lib/markets/state";
+import { DRAW_TOOLS, MAX_DRAWINGS_PER_SYMBOL, type DrawTool, type Drawing } from "@/lib/markets/drawings";
 import { TIMEFRAMES, changePercent, formatPrice, isTimeframe, priceDecimals, timeframe, type TimeframeId } from "@/lib/markets/bars";
-import { indicatorLabel, sanitizeIndicators, type IndicatorConfig } from "@/lib/markets/indicators";
-import { MarketDataError, disposeFeeds, load24hReference, loadCatalog, loadHistory, streamBars, type FeedStatus } from "@/lib/markets/feeds";
+import { indicatorLabel, type IndicatorConfig } from "@/lib/markets/indicators";
+import { MarketDataError, disposeFeeds, load24hReference, loadCatalog, loadHistory, streamBars, watchQuotes, type FeedStatus } from "@/lib/markets/feeds";
 import { DEFAULT_SYMBOL, STARTER_SYMBOLS, parseSymbolId, type MarketSymbol } from "@/lib/markets/symbols";
 import { PALETTES, paletteVars, type MarketsTheme } from "@/lib/markets/theme";
 import { cn } from "@/lib/utils";
@@ -26,35 +30,6 @@ interface Prefs {
   chartType: ChartType;
   /** Desktop: the watchlist panel is open. */
   watchOpen: boolean;
-}
-
-const WATCHLIST_KEY = "bt.markets.watchlist.v1";
-const DRAWINGS_KEY = "bt.markets.drawings.v1";
-
-function readJson(key: string): unknown {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? undefined : JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
-function writeJson(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // storage unavailable or full: still works for this visit
-  }
-}
-
-const INDICATORS_KEY = "bt.markets.indicators.v1";
-
-function readIndicators(): IndicatorConfig[] {
-  try {
-    return sanitizeIndicators(JSON.parse(localStorage.getItem(INDICATORS_KEY) ?? "[]"));
-  } catch {
-    return [];
-  }
 }
 
 function readPrefs(): Prefs {
@@ -114,31 +89,19 @@ export function MarketsView() {
   const [price, setPrice] = useState<number | null>(null);
   const [ref24, setRef24] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
-  const [indicators, setIndicators] = useState<IndicatorConfig[]>([]);
+  // Watchlist, indicators, drawings and alerts: saved to the account (and this browser).
+  const { doc, status: sync, update } = useMarketsState();
+  const indicators = doc?.indicators ?? NO_INDICATORS;
+  const watchlist = doc?.watchlist ?? NO_IDS;
+  const alerts = doc?.alerts ?? NO_ALERTS;
+  const changeIndicators = useCallback((next: IndicatorConfig[]) => update("indicators", next), [update]);
+  const changeWatchlist = useCallback((next: string[]) => update("watchlist", next.slice(0, MAX_WATCHLIST)), [update]);
+  const changeAlerts = useCallback((next: PriceAlert[] | ((prev: PriceAlert[]) => PriceAlert[])) => update("alerts", next), [update]);
   const [panel, setPanel] = useState<{ edit: string | null } | null>(null);
-  useEffect(() => setIndicators(readIndicators()), []);
-  const changeIndicators = useCallback((next: IndicatorConfig[]) => {
-    setIndicators(next);
-    try {
-      localStorage.setItem(INDICATORS_KEY, JSON.stringify(next));
-    } catch {
-      // storage unavailable: still works for this visit
-    }
-  }, []);
-  const { confirm } = useFeedback();
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [drawingStore, setDrawingStore] = useState<DrawingStore>({});
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const { confirm, toast } = useFeedback();
   const [tool, setTool] = useState<DrawTool | null>(null);
   const [sheet, setSheet] = useState(false);
-  useEffect(() => {
-    setWatchlist(sanitizeWatchlist(readJson(WATCHLIST_KEY)));
-    setDrawingStore(sanitizeDrawingStore(readJson(DRAWINGS_KEY)));
-  }, []);
-  const changeWatchlist = useCallback((next: string[]) => {
-    const list = next.slice(0, MAX_WATCHLIST);
-    setWatchlist(list);
-    writeJson(WATCHLIST_KEY, list);
-  }, []);
   const chart = useRef<PriceChartHandle>(null);
   const search = useRef<SymbolSearchHandle>(null);
   const lastPrice = useRef<number | null>(null);
@@ -167,18 +130,53 @@ export function MarketsView() {
   const palette = PALETTES[prefs?.theme ?? "dark"];
 
   const symbolId = prefs?.symbol ?? "";
-  const drawings = useMemo(() => drawingStore[symbolId] ?? [], [drawingStore, symbolId]);
+  const drawings = useMemo(() => doc?.drawings[symbolId] ?? NO_DRAWINGS, [doc, symbolId]);
   const changeDrawings = useCallback(
     (next: Drawing[]) =>
-      setDrawingStore((store) => {
+      update("drawings", (store) => {
         const out = { ...store };
         if (next.length) out[symbolId] = next.slice(-MAX_DRAWINGS_PER_SYMBOL);
         else delete out[symbolId];
-        writeJson(DRAWINGS_KEY, out);
         return out;
       }),
-    [symbolId],
+    [symbolId, update],
   );
+
+  // --- price alerts: checked against live prices while this page is open ---
+  const nameOf = useCallback((id: string) => catalog.find((c) => c.id === id)?.name ?? parseSymbolId(id)?.code ?? id, [catalog]);
+  const waiting = useMemo(() => activeAlerts(alerts), [alerts]);
+  const waitingRef = useRef(waiting);
+  waitingRef.current = waiting;
+  const firedIds = useRef(new Set<string>());
+  const checkAlerts = useCallback(
+    (id: string, price: number | null) => {
+      if (price === null) return;
+      const hits = waitingRef.current.filter((a) => a.symbol === id && !firedIds.current.has(a.id) && alertHit(a, price));
+      if (!hits.length) return;
+      const now = new Date().toISOString();
+      for (const a of hits) {
+        firedIds.current.add(a.id);
+        const d = priceDecimals(price, catalog.find((c) => c.id === id)?.pipSize);
+        const text = `${nameOf(id)} is ${a.op} ${formatPrice(a.price, d)} (now ${formatPrice(price, d)})`;
+        toast(`Price alert: ${text}`, "success", 12_000);
+        try {
+          if (typeof Notification !== "undefined" && Notification.permission === "granted")
+            new Notification("binaryTrades price alert", { body: text, tag: a.id });
+        } catch {
+          // some mobile browsers only allow notifications from a service worker
+        }
+      }
+      changeAlerts((prev) => prev.map((x) => (hits.some((h) => h.id === x.id) ? { ...x, triggered_at: now, triggered_price: price } : x)));
+    },
+    [catalog, changeAlerts, nameOf, toast],
+  );
+  const checkRef = useRef(checkAlerts);
+  checkRef.current = checkAlerts;
+  const alertSymbols = useMemo(() => [...new Set(waiting.map((a) => a.symbol))].sort().join(","), [waiting]);
+  useEffect(() => {
+    if (!alertSymbols) return;
+    return watchQuotes(alertSymbols.split(","), (id, q) => checkRef.current(id, q.price));
+  }, [alertSymbols]);
   useEffect(() => setTool(null), [symbolId]);
   const watched = watchlist.includes(symbolId);
   const pick = useCallback((id: string) => {
@@ -212,6 +210,7 @@ export function MarketsView() {
             if (!active) return;
             chart.current?.update(bar);
             lastPrice.current = bar.close;
+            checkRef.current(symbol, bar.close);
           },
           onStatus: (s, detail) => active && setStatus({ s, detail }),
         });
@@ -268,7 +267,11 @@ export function MarketsView() {
         if (window.matchMedia("(min-width: 1024px)").matches) setPrefs((p) => (p ? { ...p, watchOpen: !p.watchOpen } : p));
         else setSheet((v) => !v);
       } else if (e.key === "i" || e.key === "I") {
+        setAlertsOpen(false);
         setPanel((p) => (p ? null : { edit: null }));
+      } else if (e.key === "a" || e.key === "A") {
+        setPanel(null);
+        setAlertsOpen((v) => !v);
       } else if (e.key === "t" || e.key === "T") {
         setPrefs((p) => (p ? { ...p, theme: p.theme === "dark" ? "light" : "dark" } : p));
       }
@@ -452,7 +455,10 @@ export function MarketsView() {
         </div>
         <button
           type="button"
-          onClick={() => setPanel((p) => (p ? null : { edit: null }))}
+          onClick={() => {
+            setAlertsOpen(false);
+            setPanel((p) => (p ? null : { edit: null }));
+          }}
           aria-expanded={Boolean(panel)}
           title="Indicators (I)"
           className={cn(
@@ -464,6 +470,25 @@ export function MarketsView() {
           Indicators
           {indicators.length > 0 && (
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{indicators.length}</span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPanel(null);
+            setAlertsOpen((v) => !v);
+          }}
+          aria-expanded={alertsOpen}
+          title="Price alerts (A)"
+          className={cn(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold",
+            alertsOpen ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+          )}
+        >
+          <Bell className="h-4 w-4" aria-hidden />
+          Alerts
+          {waiting.length > 0 && (
+            <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{waiting.length}</span>
           )}
         </button>
         {indicators.map((c) => (
@@ -506,10 +531,23 @@ export function MarketsView() {
               onDrawingsChange={changeDrawings}
               tool={tool}
               onToolDone={() => setTool(null)}
+              alertLines={waiting.filter((a) => a.symbol === symbolId)}
               className="h-full"
             />
           )}
           {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
+          {alertsOpen && (
+            <AlertsPanel
+              alerts={alerts}
+              onChange={changeAlerts}
+              onClose={() => setAlertsOpen(false)}
+              current={meta}
+              price={price}
+              decimals={decimals}
+              nameOf={nameOf}
+              onPick={pick}
+            />
+          )}
           {load.kind === "loading" && <ChartSkeleton />}
           {load.kind === "ready" && load.empty && (
             <Overlay icon={SearchX} title="No candles yet" body="This market has no price history for this timeframe. Try another timeframe." />
@@ -593,9 +631,10 @@ export function MarketsView() {
       {/* Footer */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5 text-[11px] text-[var(--mk-muted)]">
         <span>Data: {meta?.provider === "deriv" ? "Deriv" : meta?.provider === "binance" ? "Binance" : "—"}</span>
+        <SyncNote status={sync} />
         {meta && !meta.hasVolume && <span>No volume published for this market</span>}
         <span className="hidden lg:inline">
-          Keys: 1–7 timeframe · / search · I indicators · W watchlist · T theme · Esc cancel drawing · Del delete drawing
+          Keys: 1–7 timeframe · / search · I indicators · A alerts · W watchlist · T theme · Esc cancel drawing · Del delete drawing
         </span>
         <a
           className="ml-auto underline-offset-2 hover:text-[var(--mk-text)] hover:underline"
@@ -705,5 +744,30 @@ function ToolIcon({ tool }: { tool: DrawTool }) {
       <line x1="2" y1="10.5" x2="16" y2="10.5" opacity="0.7" />
       <line x1="2" y1="14.5" x2="16" y2="14.5" />
     </svg>
+  );
+}
+
+const NO_INDICATORS: IndicatorConfig[] = [];
+const NO_IDS: string[] = [];
+const NO_ALERTS: PriceAlert[] = [];
+const NO_DRAWINGS: Drawing[] = [];
+
+const SYNC: Record<SyncStatus, { text: string; title: string; tone: string }> = {
+  loading: { text: "Loading your layout…", title: "Reading your saved watchlist, indicators, drawings and alerts", tone: "" },
+  saving: { text: "Saving…", title: "Saving to your account", tone: "" },
+  synced: { text: "Saved to your account", title: "Watchlist, indicators, drawings and alerts are saved to your account", tone: "" },
+  local: {
+    text: "Saved in this browser only",
+    title: "Couldn't reach your account; changes are kept in this browser and sent when it's back",
+    tone: "text-[var(--mk-accent)]",
+  },
+};
+
+function SyncNote({ status }: { status: SyncStatus }) {
+  const s = SYNC[status];
+  return (
+    <span className={cn("hidden sm:inline", s.tone)} title={s.title} role="status" aria-live="polite">
+      {s.text}
+    </span>
   );
 }

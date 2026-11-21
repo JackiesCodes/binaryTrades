@@ -6,17 +6,9 @@ import { X } from "lucide-react";
 import { SymbolSearch } from "@/components/markets/symbol-search";
 import { formatPrice, priceDecimals } from "@/lib/markets/bars";
 import { watchQuotes, type Quote } from "@/lib/markets/feeds";
+import { MAX_WATCHLIST } from "@/lib/markets/state";
 import { parseSymbolId, type MarketSymbol } from "@/lib/markets/symbols";
 import { cn } from "@/lib/utils";
-
-export const MAX_WATCHLIST = 30;
-export const DEFAULT_WATCHLIST = ["binance:BTCUSDT", "binance:ETHUSDT", "deriv:frxXAUUSD", "deriv:frxEURUSD", "deriv:R_100"];
-
-export function sanitizeWatchlist(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [...DEFAULT_WATCHLIST];
-  const ids = raw.filter((x): x is string => typeof x === "string" && parseSymbolId(x) !== null);
-  return [...new Set(ids)].slice(0, MAX_WATCHLIST);
-}
 
 /** Live prices for the watchlist, redrawn at most twice a second. */
 function useQuotes(ids: string[]): Record<string, Quote> {
@@ -88,7 +80,9 @@ export function Watchlist({
         )}
       </div>
       {ids.length === 0 ? (
-        <p className="px-3 py-6 text-center text-sm text-[var(--mk-muted)]">Your watchlist is empty. Add markets with the search above or the ☆ next to the chart&apos;s market.</p>
+        <p className="px-3 py-6 text-center text-sm text-[var(--mk-muted)]">
+          Your watchlist is empty. Add markets with the search above or the ☆ next to the chart&apos;s market.
+        </p>
       ) : (
         <ul className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" aria-label="Watchlist">
           {ids.map((id) => {
@@ -119,7 +113,9 @@ export function Watchlist({
                   </span>
                   <span className="shrink-0 text-right font-mono tabular-nums">
                     <span className="block text-sm text-[var(--mk-text)]">{q?.price != null ? formatPrice(q.price, d) : "—"}</span>
-                    <span className={cn("block text-[11px]", q?.change == null ? "text-[var(--mk-muted)]" : up ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]")}>
+                    <span
+                      className={cn("block text-[11px]", q?.change == null ? "text-[var(--mk-muted)]" : up ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]")}
+                    >
                       {q?.change == null ? "—" : `${up ? "+" : ""}${q.change.toFixed(2)}%`}
                     </span>
                   </span>

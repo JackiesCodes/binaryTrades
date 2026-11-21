@@ -15,6 +15,7 @@ import type {
   EquityPoint,
   EventLog,
   MarketData,
+  MarketsState,
   Mt5Command,
   Settings,
   Signal,
@@ -62,9 +63,10 @@ export interface Store {
   users: Collection<User>;
   auth_tokens: Collection<AuthToken>;
   market_data: Collection<MarketData>;
+  markets_state: Collection<MarketsState>;
 }
 
-const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens", "market_data"] as const;
+const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens", "market_data", "markets_state"] as const;
 type TableName = (typeof TABLES)[number];
 
 // Logs, signals and equity points grow forever; the file backend keeps the newest N.
@@ -319,6 +321,7 @@ function buildStore(): Store {
       users: c("users"),
       auth_tokens: c("auth_tokens"),
       market_data: c("market_data"),
+      markets_state: c("markets_state"),
     };
   }
 
@@ -336,6 +339,7 @@ function buildStore(): Store {
     users: file.collection("users"),
     auth_tokens: file.collection("auth_tokens"),
     market_data: file.collection("market_data"),
+    markets_state: file.collection("markets_state"),
   };
 }
 
@@ -399,6 +403,7 @@ export interface UserStore {
   signals: Collection<Signal>;
   logs: Collection<EventLog>;
   equity: Collection<EquityPoint>;
+  markets_state: Collection<MarketsState>;
 }
 
 /** Everything one user may read or change. Use this in every user-facing code path. */
@@ -411,6 +416,7 @@ export function forUser(userId: string, store = getStore()): UserStore {
     signals: scoped(store.signals, userId),
     logs: scoped(store.logs, userId),
     equity: scoped(store.equity, userId),
+    markets_state: scoped(store.markets_state, userId),
   };
 }
 

@@ -71,6 +71,7 @@ export const DELETE = withUser(async (user, request) => {
   const mine = forUser(user.id);
   for (const b of await mine.bots.all()) await mine.bots.update(b.id, { status: "paused", paused_reason: "Account deleted" });
   await store.settings.remove(user.id);
+  await store.markets_state.remove(user.id);
   await store.users.remove(user.id); // cascades to brokers, bots, trades, signals, logs and equity
   await log("info", "An account was deleted", { user_id: null });
   const response = NextResponse.json({ ok: true });

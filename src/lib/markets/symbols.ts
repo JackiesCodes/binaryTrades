@@ -118,7 +118,10 @@ export function searchSymbols(catalog: MarketSymbol[], query: string, limit = 12
     const code = norm(s.code.replace(/^(frx|cry)/, ""));
     const fullCode = norm(s.code);
     const name = norm(s.name);
-    const words = s.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const words = s.name
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
     let score = 0;
     if (code === q || fullCode === q || name === q) score = 100;
     else if (code.startsWith(q) || name.startsWith(q) || fullCode.startsWith(q)) score = 80;

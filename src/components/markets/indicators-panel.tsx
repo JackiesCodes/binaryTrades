@@ -19,7 +19,8 @@ import {
 } from "@/lib/markets/indicators";
 import { cn } from "@/lib/utils";
 
-const field = "h-9 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-sm text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
+const field =
+  "h-9 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-sm text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
 
 /** Add, edit and remove indicators. Lives inside the Markets panel so it follows the chart theme. */
 export function IndicatorsPanel({
@@ -70,7 +71,12 @@ export function IndicatorsPanel({
     >
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-[var(--mk-text)]">Indicators</h2>
-        <button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)]" aria-label="Close indicators">
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)]"
+          aria-label="Close indicators"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -145,7 +151,21 @@ export function IndicatorsPanel({
   );
 }
 
-function NumberField({ label, value, min, max, step = 1, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void }) {
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (v: number) => void;
+}) {
   // Keep what's typed until it's a valid number, so "1" on the way to "14" isn't clamped away.
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
