@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Moon, RefreshCw, SearchX, Sun } from "lucide-react";
+import { AlertTriangle, Moon, RefreshCw, SearchX, SlidersHorizontal, Sun, X } from "lucide-react";
 
-import { PriceChart, type PriceChartHandle } from "@/components/markets/price-chart";
+import { IndicatorsPanel } from "@/components/markets/indicators-panel";
+import { CHART_TYPES, PriceChart, type ChartType, type PriceChartHandle } from "@/components/markets/price-chart";
 import { SymbolSearch, type SymbolSearchHandle } from "@/components/markets/symbol-search";
 import { TIMEFRAMES, changePercent, formatPrice, isTimeframe, priceDecimals, timeframe, type TimeframeId } from "@/lib/markets/bars";
+import { indicatorLabel, sanitizeIndicators, type IndicatorConfig } from "@/lib/markets/indicators";
 import { MarketDataError, disposeFeeds, load24hReference, loadCatalog, loadHistory, streamBars, type FeedStatus } from "@/lib/markets/feeds";
 import { DEFAULT_SYMBOL, STARTER_SYMBOLS, parseSymbolId, type MarketSymbol } from "@/lib/markets/symbols";
 import { PALETTES, paletteVars, type MarketsTheme } from "@/lib/markets/theme";
@@ -17,10 +19,21 @@ interface Prefs {
   symbol: string;
   tf: TimeframeId;
   theme: MarketsTheme;
+  chartType: ChartType;
+}
+
+const INDICATORS_KEY = "bt.markets.indicators.v1";
+
+function readIndicators(): IndicatorConfig[] {
+  try {
+    return sanitizeIndicators(JSON.parse(localStorage.getItem(INDICATORS_KEY) ?? "[]"));
+  } catch {
+    return [];
+  }
 }
 
 function readPrefs(): Prefs {
-  const prefs: Prefs = { symbol: DEFAULT_SYMBOL, tf: "1h", theme: "dark" };
+  const prefs: Prefs = { symbol: DEFAULT_SYMBOL, tf: "1h", theme: "dark", chartType: "candles" };
   try {
     Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}"));
   } catch {
@@ -31,6 +44,7 @@ function readPrefs(): Prefs {
   if (url.get("tf")) prefs.tf = url.get("tf") as TimeframeId;
   if (!isTimeframe(prefs.tf)) prefs.tf = "1h";
   if (prefs.theme !== "light") prefs.theme = "dark";
+  if (!CHART_TYPES.some((t) => t.id === prefs.chartType)) prefs.chartType = "candles";
   return prefs;
 }
 
@@ -74,6 +88,17 @@ export function MarketsView() {
   const [price, setPrice] = useState<number | null>(null);
   const [ref24, setRef24] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
+  const [indicators, setIndicators] = useState<IndicatorConfig[]>([]);
+  const [panel, setPanel] = useState<{ edit: string | null } | null>(null);
+  useEffect(() => setIndicators(readIndicators()), []);
+  const changeIndicators = useCallback((next: IndicatorConfig[]) => {
+    setIndicators(next);
+    try {
+      localStorage.setItem(INDICATORS_KEY, JSON.stringify(next));
+    } catch {
+      // storage unavailable: still works for this visit
+    }
+  }, []);
   const chart = useRef<PriceChartHandle>(null);
   const search = useRef<SymbolSearchHandle>(null);
   const lastPrice = useRef<number | null>(null);
@@ -95,7 +120,10 @@ export function MarketsView() {
   }, []);
 
   const meta = useMemo(() => (prefs ? metaFor(prefs.symbol, catalog) : null), [prefs, catalog]);
-  const decimals = priceDecimals(price ?? 0, meta?.pipSize);
+  // Before the first price arrives, keep the last known precision rather than guessing from 0.
+  const lastDecimals = useRef(2);
+  if (price != null || meta?.pipSize) lastDecimals.current = priceDecimals(price ?? 1, meta?.pipSize);
+  const decimals = lastDecimals.current;
   const palette = PALETTES[prefs?.theme ?? "dark"];
 
   // History, then the live stream, for the chosen market and timeframe.
@@ -176,6 +204,8 @@ export function MarketsView() {
       } else if (e.key === "/") {
         search.current?.focus();
         e.preventDefault();
+      } else if (e.key === "i" || e.key === "I") {
+        setPanel((p) => (p ? null : { edit: null }));
       } else if (e.key === "t" || e.key === "T") {
         setPrefs((p) => (p ? { ...p, theme: p.theme === "dark" ? "light" : "dark" } : p));
       }
@@ -256,11 +286,75 @@ export function MarketsView() {
         </div>
       </div>
 
+      {/* Toolbar: chart type and indicators */}
+      <div className="scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5">
+        <div role="radiogroup" aria-label="Chart type" className="flex shrink-0 rounded-lg border border-[var(--mk-border)] p-0.5">
+          {CHART_TYPES.map((t) => {
+            const on = prefs?.chartType === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                aria-label={t.label}
+                title={t.label}
+                onClick={() => set({ chartType: t.id })}
+                className={cn("h-8 rounded-md px-2.5 text-xs font-semibold", on ? "bg-[var(--mk-raised)] text-[var(--mk-text)]" : "text-[var(--mk-muted)] hover:text-[var(--mk-text)]")}
+              >
+                <span className="sm:hidden">{t.short}</span>
+                <span className="hidden sm:inline">{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={() => setPanel((p) => (p ? null : { edit: null }))}
+          aria-expanded={Boolean(panel)}
+          title="Indicators (I)"
+          className={cn(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold",
+            panel ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+          )}
+        >
+          <SlidersHorizontal className="h-4 w-4" aria-hidden />
+          Indicators
+          {indicators.length > 0 && <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{indicators.length}</span>}
+        </button>
+        {indicators.map((c) => (
+          <span key={c.id} className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--mk-border)] text-xs text-[var(--mk-text)]">
+            <button type="button" className="flex h-full items-center gap-1.5 pl-2 pr-1" onClick={() => setPanel({ edit: c.id })} title={`Edit ${indicatorLabel(c)}`}>
+              <span className="h-2 w-2 rounded-full" style={{ background: c.color }} aria-hidden />
+              <span className="font-mono">{indicatorLabel(c)}</span>
+            </button>
+            <button
+              type="button"
+              className="flex h-full w-7 items-center justify-center text-[var(--mk-muted)] hover:text-[var(--mk-down)]"
+              aria-label={`Remove ${indicatorLabel(c)}`}
+              onClick={() => changeIndicators(indicators.filter((x) => x.id !== c.id))}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        ))}
+      </div>
+
       {/* Chart */}
       <div className="relative min-h-0 flex-1">
         {meta && (
-          <PriceChart ref={chart} palette={palette} decimals={decimals} hasVolume={meta.hasVolume} title={`${meta.name} · ${tfName}`} className="h-full" />
+          <PriceChart
+            ref={chart}
+            palette={palette}
+            decimals={decimals}
+            hasVolume={meta.hasVolume}
+            title={`${meta.name} · ${tfName}`}
+            chartType={prefs?.chartType ?? "candles"}
+            indicators={indicators}
+            className="h-full"
+          />
         )}
+        {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
         {load.kind === "loading" && <ChartSkeleton />}
         {load.kind === "ready" && load.empty && (
           <Overlay icon={SearchX} title="No candles yet" body="This market has no price history for this timeframe. Try another timeframe." />
@@ -294,7 +388,7 @@ export function MarketsView() {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5 text-[11px] text-[var(--mk-muted)]">
         <span>Data: {meta?.provider === "deriv" ? "Deriv" : meta?.provider === "binance" ? "Binance" : "—"}</span>
         {meta && !meta.hasVolume && <span>No volume published for this market</span>}
-        <span className="hidden lg:inline">Keys: 1–7 timeframe · / search · T theme</span>
+        <span className="hidden lg:inline">Keys: 1–7 timeframe · / search · I indicators · T theme</span>
         <a className="ml-auto underline-offset-2 hover:text-[var(--mk-text)] hover:underline" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">
           Charts by TradingView
         </a>
