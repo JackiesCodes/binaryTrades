@@ -12,6 +12,7 @@ import {
   Code2,
   FlaskConical,
   LayoutDashboard,
+  LineChart,
   LogOut,
   MoreHorizontal,
   PlugZap,
@@ -45,6 +46,7 @@ const NAV_GROUPS: NavItem[][] = [
     { href: "/dashboard", label: "Overview", short: "Home", icon: LayoutDashboard },
     { href: "/dashboard/bots", label: "Bots", short: "Bots", icon: Bot },
     { href: "/dashboard/trades", label: "Trades", short: "Trades", icon: CandlestickChart },
+    { href: "/dashboard/markets", label: "Markets", short: "Markets", icon: LineChart },
   ],
   [
     { href: "/dashboard/strategy-lab", label: "Strategy Lab", short: "Lab", icon: FlaskConical },
