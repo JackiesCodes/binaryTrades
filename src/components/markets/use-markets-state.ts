@@ -121,10 +121,26 @@ export function useMarketsState() {
       request("PUT", body, true).catch(() => undefined);
     };
     const onHide = () => document.visibilityState === "hidden" && flush();
+    // Alerts can also fire on the server (every minute, even with the site closed): pick those up.
+    const refresh = setInterval(async () => {
+      if (!loaded.current || dirty.current.has("alerts") || document.visibilityState !== "visible") return;
+      try {
+        const server = await request("GET");
+        if (server.alerts === null || server.alerts === undefined || dirty.current.has("alerts") || !docRef.current) return;
+        const alerts = sanitizePart("alerts", server.alerts);
+        if (JSON.stringify(alerts) === JSON.stringify(docRef.current.alerts)) return;
+        docRef.current = { ...docRef.current, alerts };
+        setDoc(docRef.current);
+        writeLocal("alerts", alerts);
+      } catch {
+        // try again next minute
+      }
+    }, 60_000);
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onHide);
     return () => {
       flush();
+      clearInterval(refresh);
       if (timer.current) clearTimeout(timer.current);
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onHide);

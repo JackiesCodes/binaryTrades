@@ -170,6 +170,27 @@ export function MarketsView() {
     },
     [catalog, changeAlerts, nameOf, toast],
   );
+  // Alerts the server fired (every minute, also with the site closed) show up here too.
+  const seenWaiting = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!doc) return;
+    const now = new Set(waiting.map((a) => a.id));
+    const before = seenWaiting.current;
+    seenWaiting.current = now;
+    if (!before) return;
+    for (const a of alerts) {
+      if (a.triggered_at && before.has(a.id) && !firedIds.current.has(a.id)) {
+        firedIds.current.add(a.id);
+        const d = priceDecimals(a.triggered_price ?? a.price, catalog.find((c) => c.id === a.symbol)?.pipSize);
+        toast(
+          `Price alert: ${nameOf(a.symbol)} went ${a.op} ${formatPrice(a.price, d)}${a.triggered_price != null ? ` (reached ${formatPrice(a.triggered_price, d)})` : ""}`,
+          "success",
+          12_000,
+        );
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alerts]);
   const checkRef = useRef(checkAlerts);
   checkRef.current = checkAlerts;
   const alertSymbols = useMemo(() => [...new Set(waiting.map((a) => a.symbol))].sort().join(","), [waiting]);

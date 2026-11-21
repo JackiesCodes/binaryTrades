@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
+import { keepServerFired, sanitizeAlerts } from "@/lib/markets/alerts";
 import { MARKETS_KEYS, MAX_STATE_SIZE, sanitizePart, type MarketsDoc } from "@/lib/markets/state";
 import { forUser, nowIso } from "@/lib/trading/store";
 import type { MarketsState } from "@/lib/trading/types";
@@ -53,6 +54,8 @@ export const PUT = withUser(async (user, request) => {
 
   const store = forUser(user.id).markets_state;
   const existing = await store.get(user.id);
+  // Alerts the server fired since the page last loaded stay fired.
+  if (patch.alerts && existing?.alerts) patch.alerts = keepServerFired(patch.alerts, sanitizeAlerts(existing.alerts));
   const row = existing
     ? await store.update(user.id, { ...(patch as Partial<MarketsState>), updated_at: nowIso() })
     : await store.insert({

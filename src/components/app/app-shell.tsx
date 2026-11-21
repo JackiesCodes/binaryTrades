@@ -316,8 +316,8 @@ function BookSwitch() {
 function AlertsBell() {
   const { state } = useDashboard();
   const since = Date.now() - 24 * 3600_000;
-  const recent = state?.logs.filter((l) => (l.level === "error" || l.level === "warn") && Date.parse(l.created_at) > since).length ?? 0;
-  const label = recent ? `Alerts & Logs: ${recent} warning${recent === 1 ? "" : "s"} in the last 24 hours` : "Alerts & Logs";
+  const recent = state?.logs.filter((l) => (l.level === "error" || l.level === "warn" || l.level === "alert") && Date.parse(l.created_at) > since).length ?? 0;
+  const label = recent ? `Alerts & Logs: ${recent} alert${recent === 1 ? "" : "s"} or warning${recent === 1 ? "" : "s"} in the last 24 hours` : "Alerts & Logs";
   const { props, tip } = useHoverTip(label, "below");
   return (
     <Link href="/dashboard/logs" aria-label={label} className={cn(chip, "relative hidden w-10 justify-center px-0 sm:inline-flex")} {...props}>

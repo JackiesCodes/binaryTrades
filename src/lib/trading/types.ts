@@ -166,7 +166,7 @@ export interface EventLog {
   id: string;
   /** Owner of this log line; null for platform-wide messages. */
   user_id: string | null;
-  level: "info" | "warn" | "error" | "trade";
+  level: "info" | "warn" | "error" | "trade" | "alert";
   message: string;
   bot_id: string | null;
   context: Record<string, unknown> | null;

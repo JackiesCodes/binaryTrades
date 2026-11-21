@@ -6,9 +6,10 @@ import { useDashboard } from "@/components/app/dashboard-context";
 import { EmptyState, PageHeader, Panel, Segmented } from "@/components/app/widgets";
 import { cn } from "@/lib/utils";
 
-const LEVELS = ["all", "trade", "warn", "error", "info"] as const;
+const LEVELS = ["all", "trade", "alert", "warn", "error", "info"] as const;
 const TONE: Record<string, string> = {
   trade: "text-profit",
+  alert: "text-gold",
   warn: "text-amber-300",
   error: "text-loss",
   info: "text-muted-foreground",

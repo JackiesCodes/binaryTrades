@@ -19,7 +19,8 @@ async function handle(request: Request) {
   const report = await runEngineTick();
   // One line per tick in the server log: each running bot and the engine's verdict on it.
   const entries = Object.entries(report.bots);
-  console.info(`[engine] ${report.users} users, ${entries.length} bots — ${entries.map(([k, v]) => `${k}: ${v}`).join(" | ").slice(0, 3000)}`);
+  const alerts = report.alerts ? ` · price alerts: ${report.alerts.waiting} waiting, ${report.alerts.fired} fired` : "";
+  console.info(`[engine] ${report.users} users, ${entries.length} bots${alerts} — ${entries.map(([k, v]) => `${k}: ${v}`).join(" | ").slice(0, 3000)}`);
   return NextResponse.json(report);
 }
 

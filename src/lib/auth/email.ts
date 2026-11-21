@@ -60,3 +60,12 @@ export function resetEmail(url: string) {
     }),
   };
 }
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/** One email for the price alerts that fired in a check, e.g. "BTC/USDT went above 70,000.00 (reached 70,120.50)". */
+export function priceAlertEmail(lines: string[], url: string) {
+  const subject = lines.length === 1 ? `Price alert: ${lines[0]}` : `${lines.length} price alerts fired`;
+  const body = `${lines.map(esc).join("<br>")}<br><br>Prices are checked every minute. Each alert fires once; set a new one on the Markets page.`;
+  return { subject: subject.slice(0, 140), html: layout("Your price alert fired", body, { label: "Open Markets", url }) };
+}

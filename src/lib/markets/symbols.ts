@@ -137,3 +137,13 @@ export function searchSymbols(catalog: MarketSymbol[], query: string, limit = 12
     .slice(0, limit)
     .map((x) => x.s);
 }
+
+/** A readable name for a market id without the full catalog (server side): "BTC/USDT", "Gold/USD"… */
+export function marketName(id: string): string {
+  const known = STARTER_SYMBOLS.find((s) => s.id === id);
+  if (known) return known.name;
+  const p = parseSymbolId(id);
+  if (!p) return id;
+  if (p.provider === "binance") return fromBinance([{ symbol: p.code }])[0]?.name ?? p.code;
+  return p.code.replace(/^frx/, "");
+}

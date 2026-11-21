@@ -13,13 +13,15 @@ export interface PriceAlert {
   triggered_at: string | null;
   /** The price that set it off. */
   triggered_price?: number | null;
+  /** Also email the user when it fires (checked on the server every minute). Defaults to true. */
+  email?: boolean;
 }
 
 export const MAX_ACTIVE_ALERTS = 50;
 /** Fired alerts kept as history. */
 export const MAX_ALERT_HISTORY = 30;
 
-export function newAlert(symbol: string, op: PriceAlert["op"], price: number, now = new Date()): PriceAlert {
+export function newAlert(symbol: string, op: PriceAlert["op"], price: number, now = new Date(), email = true): PriceAlert {
   return {
     id: `a-${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     symbol,
@@ -27,6 +29,7 @@ export function newAlert(symbol: string, op: PriceAlert["op"], price: number, no
     price,
     created_at: now.toISOString(),
     triggered_at: null,
+    email,
   };
 }
 
@@ -34,6 +37,32 @@ export function newAlert(symbol: string, op: PriceAlert["op"], price: number, no
 export function alertHit(a: PriceAlert, price: number): boolean {
   if (a.triggered_at || !Number.isFinite(price)) return false;
   return a.op === "above" ? price >= a.price : price <= a.price;
+}
+
+/** A 1-minute candle, as the server reads them to check alerts. */
+export interface MinuteCandle {
+  /** Start, Unix seconds. */
+  time: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+/**
+ * Server check, once a minute: did the market reach the alert's level? Looks at the highs / lows of
+ * 1-minute candles that started after the minute the alert was set (so a spike between two checks
+ * still counts), and at the latest price. Returns the price that reached it, or null.
+ */
+export function alertHitInCandles(a: PriceAlert, candles: MinuteCandle[]): number | null {
+  if (a.triggered_at) return null;
+  const created = Date.parse(a.created_at) / 1000;
+  const after = Math.floor(created / 60) * 60 + 60;
+  for (const c of candles) {
+    if (c.time < after) continue;
+    if (a.op === "above" ? c.high >= a.price : c.low <= a.price) return a.op === "above" ? c.high : c.low;
+  }
+  const last = candles[candles.length - 1];
+  return last && alertHit(a, last.close) ? last.close : null;
 }
 
 /**
@@ -81,10 +110,20 @@ export function sanitizeAlerts(raw: unknown): PriceAlert[] {
       created_at: iso(a.created_at) ?? new Date().toISOString(),
       triggered_at,
       triggered_price: triggered_at && Number.isFinite(tp) ? tp : null,
+      email: a.email !== false,
     };
     if (triggered_at) fired.push(alert);
     else active.push(alert);
   }
   fired.sort((x, y) => (y.triggered_at ?? "").localeCompare(x.triggered_at ?? ""));
   return [...active.slice(0, MAX_ACTIVE_ALERTS), ...fired.slice(0, MAX_ALERT_HISTORY)];
+}
+
+/**
+ * Saving alerts from a page: an alert the server has already fired stays fired, even if the page
+ * (which hadn't heard yet) sends it back as waiting. Otherwise the page's list wins.
+ */
+export function keepServerFired(incoming: PriceAlert[], stored: PriceAlert[]): PriceAlert[] {
+  const fired = new Map(stored.filter((a) => a.triggered_at).map((a) => [a.id, a]));
+  return incoming.map((a) => (!a.triggered_at && fired.has(a.id) ? fired.get(a.id)! : a));
 }

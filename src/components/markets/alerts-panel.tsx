@@ -39,6 +39,22 @@ export function AlertsPanel({
   const [op, setOp] = useState<PriceAlert["op"]>("above");
   const [touchedOp, setTouchedOp] = useState(false);
   const [edited, setEdited] = useState(false); // the prefilled current price is only a starting point
+  const [email, setEmail] = useState(true);
+  useEffect(() => {
+    try {
+      setEmail(localStorage.getItem("bt.markets.alertEmail") !== "0");
+    } catch {
+      // keep the default
+    }
+  }, []);
+  const changeEmail = (on: boolean) => {
+    setEmail(on);
+    try {
+      localStorage.setItem("bt.markets.alertEmail", on ? "1" : "0");
+    } catch {
+      // not remembered
+    }
+  };
   const [permission, setPermission] = useState<Permission>("default");
   const panel = useRef<HTMLDivElement>(null);
   const active = activeAlerts(alerts);
@@ -67,7 +83,7 @@ export function AlertsPanel({
   const add = (e: React.FormEvent) => {
     e.preventDefault();
     if (!current || problem || !(value > 0) || full) return;
-    onChange([newAlert(current.id, op, value), ...alerts]);
+    onChange([newAlert(current.id, op, value, new Date(), email), ...alerts]);
     setTouchedOp(false);
   };
 
@@ -147,6 +163,10 @@ export function AlertsPanel({
             {problem}
           </p>
         )}
+        <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-[var(--mk-text)]">
+          <input type="checkbox" checked={email} onChange={(e) => changeEmail(e.target.checked)} className="h-4 w-4 accent-[var(--mk-accent)]" />
+          Also email me when it fires
+        </label>
         <button
           type="submit"
           disabled={!current || Boolean(problem) || !(value > 0) || full}
@@ -171,7 +191,10 @@ export function AlertsPanel({
             Also notify me in the browser
           </button>
         )}
-        <span className="block">Alerts are checked while a Markets page is open.</span>
+        <span className="block">
+          Checked every minute on our server, also with the site closed. Fired alerts are listed in Alerts &amp; Logs and emailed to your account&apos;s address
+          if you ticked the box.
+        </span>
       </div>
 
       <h3 className="mt-2 text-xs font-semibold uppercase tracking-wide text-[var(--mk-muted)]">Waiting ({active.length})</h3>
@@ -183,6 +206,7 @@ export function AlertsPanel({
                 <span className="block truncate text-[var(--mk-text)]">{nameOf(a.symbol)}</span>
                 <span className="block font-mono text-[11px] text-[var(--mk-muted)]">
                   {a.op === "above" ? "▲ above" : "▼ below"} {fmt(a.symbol, a.price)}
+                  {a.email !== false && " · email"}
                 </span>
               </button>
               <button

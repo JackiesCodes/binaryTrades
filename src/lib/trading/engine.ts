@@ -1,6 +1,7 @@
 import "server-only";
 
 import { derivCandles, derivClose, derivOpen, derivSnapshot, type Candle, type DerivCredentials } from "@/lib/brokers/deriv";
+import { checkPriceAlerts } from "@/lib/markets/server-alerts";
 import { decryptSecret } from "@/lib/secrets";
 import { atrSeries, getStrategy } from "@/lib/strategies";
 import { resolveLevels } from "@/lib/strategies/backtest";
@@ -16,6 +17,7 @@ export const deps = {
   derivOpen,
   derivClose,
   derivSnapshot,
+  checkPriceAlerts: () => checkPriceAlerts(),
 };
 
 const ACTIVE: Trade["status"][] = ["pending", "open"];
@@ -690,6 +692,8 @@ export interface TickReport {
   at: string;
   users: number;
   bots: Record<string, string>;
+  /** Markets price alerts checked this tick. */
+  alerts?: { waiting: number; fired: number };
 }
 
 /** Called every minute by an open dashboard and/or an external cron; runs every user's bots. */
@@ -713,6 +717,12 @@ async function doTick(): Promise<TickReport> {
     } catch (error) {
       await log("error", `Engine error: ${(error as Error).message}`, { user_id: userId });
     }
+  }
+  // Markets price alerts, so they fire with the site closed. Never lets a feed problem stop the tick.
+  try {
+    report.alerts = await deps.checkPriceAlerts();
+  } catch (error) {
+    console.error("[alerts] check failed", error);
   }
   return report;
 }
