@@ -15,6 +15,34 @@ export interface PriceAlert {
   triggered_price?: number | null;
   /** Also email the user when it fires (checked on the server every minute). Defaults to true. */
   email?: boolean;
+  /** Also trade when it fires, through one of the user's bots (demo accounts only for now). */
+  trade?: AlertTrade | null;
+  /** What happened to that trade, e.g. "Bought with Gold bot" or "Not placed: Bot is paused". */
+  trade_result?: string | null;
+}
+
+export interface AlertTrade {
+  bot_id: string;
+  action: "buy" | "sell" | "close";
+}
+
+export const ALERT_TRADE_ACTIONS: Array<{ id: AlertTrade["action"]; label: string; option: string }> = [
+  { id: "buy", label: "Buy", option: "Buy with a demo bot" },
+  { id: "sell", label: "Sell", option: "Sell with a demo bot" },
+  { id: "close", label: "Close trades", option: "Close a demo bot's trades" },
+];
+
+function sanitizeTrade(raw: unknown): AlertTrade | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.bot_id !== "string" || !/^[\w-]{1,80}$/.test(t.bot_id)) return null;
+  if (t.action !== "buy" && t.action !== "sell" && t.action !== "close") return null;
+  return { bot_id: t.bot_id, action: t.action };
+}
+
+/** Whether two alerts ask for the same trade (used to re-check only new or changed trade settings). */
+export function sameTrade(a: AlertTrade | null | undefined, b: AlertTrade | null | undefined): boolean {
+  return (a?.bot_id ?? null) === (b?.bot_id ?? null) && (a?.action ?? null) === (b?.action ?? null);
 }
 
 export const MAX_ACTIVE_ALERTS = 50;
@@ -111,6 +139,8 @@ export function sanitizeAlerts(raw: unknown): PriceAlert[] {
       triggered_at,
       triggered_price: triggered_at && Number.isFinite(tp) ? tp : null,
       email: a.email !== false,
+      trade: sanitizeTrade(a.trade),
+      trade_result: typeof a.trade_result === "string" ? a.trade_result.slice(0, 200) : null,
     };
     if (triggered_at) fired.push(alert);
     else active.push(alert);

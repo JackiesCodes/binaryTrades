@@ -87,7 +87,7 @@ export async function api<T = unknown>(path: string, method = "GET", body?: unkn
   if (!res.ok) {
     const code = (data as { error?: string }).error ?? `HTTP_${res.status}`;
     const details = (data as { details?: unknown }).details;
-    if ((code === "SCRIPT_ERROR" || code === "BAD_MULTIPLIER") && typeof details === "string") throw new ApiError(details);
+    if ((code === "SCRIPT_ERROR" || code === "BAD_MULTIPLIER" || code.startsWith("ALERT_TRADE")) && typeof details === "string") throw new ApiError(details);
     if (code === "INVALID_REQUEST" && details && typeof details === "object") throw new ApiError(invalidFieldsMessage(details as Record<string, string[]>));
     const extra = typeof details === "string" ? ` (${details})` : "";
     throw new ApiError((MESSAGES[code] ?? (data as { reason?: string }).reason ?? code) + extra);

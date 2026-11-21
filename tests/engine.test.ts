@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ingestMt5Report, type Mt5Report } from "@/lib/brokers/mt5";
 import { encryptSecret } from "@/lib/secrets";
-import { activeTrades, bookEquity, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
+import { activeTrades, alertTrade, bookEquity, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
 import { forUser, getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
 import type { Bot, BrokerAccount, Challenge } from "@/lib/trading/types";
 
@@ -532,5 +532,42 @@ describe("multi-user isolation", () => {
 
     const report = await runEngineTick();
     expect(report.users).toBe(2);
+  });
+});
+
+describe("price alerts that trade (demo only)", () => {
+  it("place one trade through a running demo bot, with its ATR stop, and never twice for the same alert", async () => {
+    const demo = await derivAccount("demo-token", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id, name: "EUR bot" });
+    await getStore().bots.insert(bot);
+    const alert = { id: "a-1", trade: { bot_id: bot.id, action: "buy" as const } };
+    expect(await alertTrade(U, alert)).toBe("Bought with EUR bot");
+    expect(await alertTrade(U, alert)).toBe("Already placed");
+    const open = await activeTrades(U, { bot_id: bot.id });
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ side: "buy", book: "demo" });
+    const signals = await getStore().signals.all({ eq: { bot_id: bot.id } });
+    expect(signals.map((x) => [x.source, x.external_id, x.status])).toEqual(
+      expect.arrayContaining([["alert", "alert:a-1", "accepted"]]),
+    );
+    expect(await alertTrade(U, { id: "a-2", trade: { bot_id: bot.id, action: "close" } })).toBe("Closed trades with EUR bot");
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(0);
+  });
+
+  it("refuse real accounts, paused bots and missing bots, saying why", async () => {
+    const real = await derivAccount("real-token", false, 1000);
+    const realBot = makeBot({ broker_account_id: real.id, name: "Real bot" });
+    await getStore().bots.insert(realBot);
+    expect(await alertTrade(U, { id: "a-3", trade: { bot_id: realBot.id, action: "buy" } })).toMatch(/^Not placed: alert trades are for demo accounts only/);
+    expect(await activeTrades(U)).toHaveLength(0);
+    expect(contracts).toHaveLength(0); // nothing reached the broker
+
+    const demo = await derivAccount("demo-token", true, 1000);
+    const paused = makeBot({ broker_account_id: demo.id, status: "paused" });
+    await getStore().bots.insert(paused);
+    expect(await alertTrade(U, { id: "a-4", trade: { bot_id: paused.id, action: "sell" } })).toBe("Not placed: Bot is paused");
+    expect(await alertTrade(U, { id: "a-5", trade: { bot_id: "gone", action: "buy" } })).toBe("Not placed: the bot no longer exists");
+    // Another user's bot is "not found", never traded.
+    expect(await alertTrade("someone-else", { id: "a-6", trade: { bot_id: paused.id, action: "buy" } })).toBe("Not placed: the bot no longer exists");
   });
 });

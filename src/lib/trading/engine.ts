@@ -1,7 +1,7 @@
 import "server-only";
 
 import { derivCandles, derivClose, derivOpen, derivSnapshot, type Candle, type DerivCredentials } from "@/lib/brokers/deriv";
-import { checkPriceAlerts } from "@/lib/markets/server-alerts";
+import { checkPriceAlerts, fetchRecentCandles } from "@/lib/markets/server-alerts";
 import { decryptSecret } from "@/lib/secrets";
 import { atrSeries, getStrategy } from "@/lib/strategies";
 import { resolveLevels } from "@/lib/strategies/backtest";
@@ -17,7 +17,7 @@ export const deps = {
   derivOpen,
   derivClose,
   derivSnapshot,
-  checkPriceAlerts: () => checkPriceAlerts(),
+  checkPriceAlerts: () => checkPriceAlerts(fetchRecentCandles, alertTrade),
 };
 
 const ACTIVE: Trade["status"][] = ["pending", "open"];
@@ -442,6 +442,46 @@ export interface SignalInput {
   external_id?: string | null;
   stopDistance?: number | null;
   rr?: number | null;
+}
+
+/**
+ * A Markets price alert asked for a trade: send it through the bot like any other signal (Risk Guard,
+ * the bot's risk, its usual ATR stop and target). Demo accounts only for now. Each alert can place one
+ * trade at most, even if this runs twice. Returns what happened, in words.
+ */
+export async function alertTrade(userId: string, alert: { id: string; trade?: { bot_id: string; action: SignalAction } | null }): Promise<string> {
+  const t = alert.trade;
+  if (!t) return "";
+  const store = forUser(userId);
+  const bot = await store.bots.get(t.bot_id);
+  if (!bot) return "Not placed: the bot no longer exists";
+  const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
+  if (!broker) return `Not placed: ${bot.name} has no account`;
+  if (!broker.is_demo) return `Not placed: alert trades are for demo accounts only, and ${bot.name} trades on a real account`;
+
+  let stopDistance: number | null = null;
+  const params = bot.strategy?.params ?? {};
+  if (t.action !== "close") {
+    try {
+      const candles = await botCandles(bot, 100);
+      const atr = candles && candles.length > 20 ? atrSeries(candles).at(-1) : undefined;
+      if (atr && Number.isFinite(atr)) stopDistance = atr * (params.atr_mult ?? 2);
+    } catch {
+      // no stop from candles: the bot's risk setting still caps the stake
+    }
+  }
+  const signal = await processSignal({
+    bot,
+    source: "alert",
+    action: t.action,
+    stopDistance,
+    rr: stopDistance ? (params.rr ?? 2) : 0,
+    external_id: `alert:${alert.id}`,
+  });
+  if (signal.status === "duplicate") return "Already placed";
+  if (signal.status !== "accepted") return `Not placed: ${signal.reason ?? signal.status}`;
+  const verb = t.action === "buy" ? "Bought" : t.action === "sell" ? "Sold" : "Closed trades";
+  return `${verb} with ${bot.name}${signal.reason ? ` (${signal.reason})` : ""}`;
 }
 
 export async function processSignal(input: SignalInput): Promise<Signal> {

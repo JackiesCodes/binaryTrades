@@ -135,7 +135,7 @@ export interface Signal {
   /** Owner of this row. */
   user_id: string;
   bot_id: string | null;
-  source: BotSource | "manual";
+  source: BotSource | "manual" | "alert";
   action: SignalAction;
   symbol: string | null;
   price: number | null;

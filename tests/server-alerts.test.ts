@@ -104,10 +104,12 @@ describe("server price alerts (every minute)", () => {
     expect((await alertsOf(bob.id))[0]!.triggered_at).toBeNull(); // 95 never went below 90
 
     const logs = await getStore().logs.all({ eq: { level: "alert" } });
-    expect(logs.filter((l) => l.user_id === ann.id).map((l) => l.message).sort()).toEqual([
-      "Price alert: BTC/USDT went above 100.000 (reached 102.000)",
-      "Price alert: Volatility 100 Index went below 10.00 (reached 9.00)",
-    ]);
+    expect(
+      logs
+        .filter((l) => l.user_id === ann.id)
+        .map((l) => l.message)
+        .sort(),
+    ).toEqual(["Price alert: BTC/USDT went above 100.000 (reached 102.000)", "Price alert: Volatility 100 Index went below 10.00 (reached 9.00)"]);
     expect(logs.filter((l) => l.user_id === cy.id)).toHaveLength(1);
     // One email, only for the alert that asked for one.
     expect(sent).toHaveLength(1);
@@ -172,5 +174,97 @@ describe("server price alerts (every minute)", () => {
     } finally {
       deps.checkPriceAlerts = original;
     }
+  });
+});
+
+describe("alerts that trade", () => {
+  it("record what happened to the trade on the alert and in the log", async () => {
+    const ann = await userWithAlerts("ann@example.com", [
+      { ...alert("above", 100, "deriv:R_100"), trade: { bot_id: "bot-1", action: "buy" } },
+      alert("above", 100, "deriv:R_100"),
+    ]);
+    const placed: string[] = [];
+    const placeTrade = async (userId: string, a: PriceAlert) => {
+      placed.push(`${userId}:${a.trade?.bot_id}:${a.trade?.action}`);
+      return "Bought with R bot";
+    };
+    const feed = async () => new Map([["deriv:R_100", [c(1, 101, 99, 100)]]]);
+    expect((await checkPriceAlerts(feed, placeTrade)).fired).toBe(2);
+    expect(placed).toEqual([`${ann.id}:bot-1:buy`]); // only the alert that asked for a trade
+    const saved = await alertsOf(ann.id);
+    expect(saved.find((x) => x.trade)!.trade_result).toBe("Bought with R bot");
+    expect(saved.find((x) => !x.trade)!.trade_result).toBeNull();
+    const logs = (await getStore().logs.all({ eq: { level: "alert" } })).map((l) => l.message);
+    expect(logs).toContain("Price alert: Volatility 100 Index went above 100.00 (reached 101.00) · Bought with R bot");
+    // A failing trade is reported, not thrown.
+    await userWithAlerts("bob@example.com", [{ ...alert("above", 100, "deriv:R_100"), trade: { bot_id: "bot-2", action: "sell" } }]);
+    const boom = async () => {
+      throw new Error("broker down");
+    };
+    expect((await checkPriceAlerts(feed, boom)).fired).toBe(1);
+  });
+
+  it("can only be set on the user's own demo bots for the same market", async () => {
+    const ann = await userWithAlerts("ann@example.com", []);
+    cookie = (await createSessionToken(ann.id, ann.session_version)).value;
+    const now = nowIso();
+    const broker = (id: string, is_demo: boolean) => ({
+      id,
+      user_id: ann.id,
+      kind: "deriv" as const,
+      label: id,
+      status: "connected" as const,
+      login: id,
+      server: null,
+      currency: "USD",
+      balance: 1000,
+      equity: 1000,
+      is_demo,
+      encrypted_token: null,
+      app_id: null,
+      bridge_key_hash: null,
+      last_sync_at: now,
+      error: null,
+      created_at: now,
+    });
+    await getStore().brokers.insert(broker("demo-acc", true) as never);
+    await getStore().brokers.insert(broker("real-acc", false) as never);
+    const bot = (id: string, account: string, data_symbol = "R_100") =>
+      getStore().bots.insert({
+        id,
+        user_id: ann.id,
+        name: id,
+        source: "tradingview",
+        broker_account_id: account,
+        symbol: data_symbol,
+        data_symbol,
+        price_source: "deriv",
+        timeframe: 60,
+        strategy: null,
+        status: "running",
+        paused_reason: null,
+        risk_percent: 1,
+        deriv_multiplier: 100,
+        magic: 1,
+        webhook_passphrase: "x",
+        last_bar_epoch: null,
+        last_signal_at: null,
+        created_at: now,
+      } as never);
+    await bot("demo-bot", "demo-acc");
+    await bot("real-bot", "real-acc");
+    await bot("gold-bot", "demo-acc", "frxXAUUSD");
+    const put = (alerts: unknown[]) => PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ alerts }) }), { params: {} });
+    const withTrade = (bot_id: string, id = "a-t") => ({ ...alert("above", 100, "deriv:R_100"), id, trade: { bot_id, action: "buy" } });
+
+    const refused = await put([withTrade("real-bot")]);
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: "ALERT_TRADE_DEMO_ONLY" });
+    expect((await (await put([withTrade("gold-bot")])).json()).error).toBe("ALERT_TRADE_MARKET");
+    expect((await (await put([withTrade("nobody")])).json()).error).toBe("ALERT_TRADE_BOT");
+    expect((await put([withTrade("demo-bot")])).status).toBe(200);
+    // A saved alert isn't judged again on later saves (e.g. if its bot later moves to a real account).
+    await getStore().bots.update("demo-bot", { broker_account_id: "real-acc" });
+    expect((await put([withTrade("demo-bot"), alert("below", 5)])).status).toBe(200);
   });
 });

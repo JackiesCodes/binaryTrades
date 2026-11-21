@@ -4,7 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { Bell, BellOff, Trash2, X } from "lucide-react";
 
 import { formatPrice, priceDecimals } from "@/lib/markets/bars";
-import { MAX_ACTIVE_ALERTS, activeAlerts, alertProblem, newAlert, suggestedOp, type PriceAlert } from "@/lib/markets/alerts";
+import {
+  ALERT_TRADE_ACTIONS,
+  MAX_ACTIVE_ALERTS,
+  activeAlerts,
+  alertProblem,
+  newAlert,
+  suggestedOp,
+  type AlertTrade,
+  type PriceAlert,
+} from "@/lib/markets/alerts";
 import type { MarketSymbol } from "@/lib/markets/symbols";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +33,8 @@ export function AlertsPanel({
   decimals,
   nameOf,
   onPick,
+  bots,
+  botName,
 }: {
   alerts: PriceAlert[];
   onChange: (next: PriceAlert[]) => void;
@@ -34,12 +45,21 @@ export function AlertsPanel({
   decimals: number;
   nameOf: (id: string) => string;
   onPick: (id: string) => void;
+  /** Bots that may trade on this market's alerts: on demo accounts and trading this market. */
+  bots: Array<{ id: string; name: string; running: boolean }>;
+  botName: (id: string) => string;
 }) {
   const [level, setLevel] = useState(() => (price !== null ? price.toFixed(decimals) : ""));
   const [op, setOp] = useState<PriceAlert["op"]>("above");
   const [touchedOp, setTouchedOp] = useState(false);
   const [edited, setEdited] = useState(false); // the prefilled current price is only a starting point
   const [email, setEmail] = useState(true);
+  const [action, setAction] = useState<AlertTrade["action"] | "">("");
+  const [botId, setBotId] = useState("");
+  useEffect(() => {
+    if (!bots.some((b) => b.id === botId)) setBotId(bots[0]?.id ?? "");
+  }, [bots, botId]);
+  const chosenBot = bots.find((b) => b.id === botId);
   useEffect(() => {
     try {
       setEmail(localStorage.getItem("bt.markets.alertEmail") !== "0");
@@ -82,8 +102,10 @@ export function AlertsPanel({
 
   const add = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!current || problem || !(value > 0) || full) return;
-    onChange([newAlert(current.id, op, value, new Date(), email), ...alerts]);
+    if (!current || problem || !(value > 0) || full || (action && !chosenBot)) return;
+    const alert = newAlert(current.id, op, value, new Date(), email);
+    if (action && chosenBot) alert.trade = { bot_id: chosenBot.id, action };
+    onChange([alert, ...alerts]);
     setTouchedOp(false);
   };
 
@@ -163,13 +185,50 @@ export function AlertsPanel({
             {problem}
           </p>
         )}
+        <div className="grid gap-1.5">
+          <label className="grid gap-1">
+            <span className="text-[11px] font-medium text-[var(--mk-muted)]">When it fires</span>
+            <select className={field} value={action} onChange={(e) => setAction(e.target.value as AlertTrade["action"] | "")}>
+              <option value="">Just tell me</option>
+              {ALERT_TRADE_ACTIONS.map((a) => (
+                <option key={a.id} value={a.id} disabled={!bots.length}>
+                  {a.option}
+                </option>
+              ))}
+            </select>
+          </label>
+          {action !== "" &&
+            (bots.length ? (
+              <label className="grid gap-1">
+                <span className="text-[11px] font-medium text-[var(--mk-muted)]">Bot</span>
+                <select className={field} value={botId} onChange={(e) => setBotId(e.target.value)}>
+                  {bots.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                      {b.running ? "" : " (paused)"}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] leading-snug text-[var(--mk-muted)]">
+                  Placed on the server through Risk Guard with the bot&apos;s risk and its usual stop and target. The bot must be running when the alert fires.
+                  {chosenBot && !chosenBot.running && <span className="text-[var(--mk-accent)]"> This bot is paused right now.</span>}
+                </span>
+              </label>
+            ) : null)}
+          {!bots.length && (
+            <span className="text-[11px] leading-snug text-[var(--mk-muted)]">
+              To trade when it fires, create a bot on a demo account that trades {current?.name ?? "this market"} (Deriv markets only). Alert trades are
+              demo-only for now.
+            </span>
+          )}
+        </div>
         <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-[var(--mk-text)]">
           <input type="checkbox" checked={email} onChange={(e) => changeEmail(e.target.checked)} className="h-4 w-4 accent-[var(--mk-accent)]" />
           Also email me when it fires
         </label>
         <button
           type="submit"
-          disabled={!current || Boolean(problem) || !(value > 0) || full}
+          disabled={!current || Boolean(problem) || !(value > 0) || full || (action !== "" && !chosenBot)}
           className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--mk-accent)] text-sm font-semibold text-[var(--mk-bg)] disabled:opacity-50"
         >
           <Bell className="h-4 w-4" /> Add alert
@@ -208,6 +267,11 @@ export function AlertsPanel({
                   {a.op === "above" ? "▲ above" : "▼ below"} {fmt(a.symbol, a.price)}
                   {a.email !== false && " · email"}
                 </span>
+                {a.trade && (
+                  <span className="block truncate text-[11px] text-[var(--mk-accent)]">
+                    → {ALERT_TRADE_ACTIONS.find((x) => x.id === a.trade!.action)?.label} with {botName(a.trade.bot_id)}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -240,6 +304,7 @@ export function AlertsPanel({
             {fired.map((a) => (
               <li key={a.id} className="rounded-xl px-2.5 py-1.5 text-xs text-[var(--mk-muted)]">
                 <span className="text-[var(--mk-text)]">{nameOf(a.symbol)}</span> {a.op} {fmt(a.symbol, a.price)} · {when(a.triggered_at!)}
+                {a.trade && <span className="block text-[var(--mk-accent)]">{a.trade_result ?? "Placing the trade…"}</span>}
               </li>
             ))}
           </ul>

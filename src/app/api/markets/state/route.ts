@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
-import { keepServerFired, sanitizeAlerts } from "@/lib/markets/alerts";
+import { keepServerFired, sameTrade, sanitizeAlerts } from "@/lib/markets/alerts";
 import { MARKETS_KEYS, MAX_STATE_SIZE, sanitizePart, type MarketsDoc } from "@/lib/markets/state";
 import { forUser, nowIso } from "@/lib/trading/store";
 import type { MarketsState } from "@/lib/trading/types";
@@ -56,6 +56,21 @@ export const PUT = withUser(async (user, request) => {
   const existing = await store.get(user.id);
   // Alerts the server fired since the page last loaded stay fired.
   if (patch.alerts && existing?.alerts) patch.alerts = keepServerFired(patch.alerts, sanitizeAlerts(existing.alerts));
+
+  // Alert trades: only through the user's own bots on demo accounts, trading the alert's market.
+  // Checked when an alert's trade is new or changed (a saved alert isn't re-judged on every save).
+  if (patch.alerts) {
+    const stored = new Map(sanitizeAlerts(existing?.alerts ?? []).map((a) => [a.id, a]));
+    const mine = forUser(user.id);
+    for (const a of patch.alerts) {
+      if (!a.trade || a.triggered_at || sameTrade(a.trade, stored.get(a.id)?.trade)) continue;
+      const bot = await mine.bots.get(a.trade.bot_id);
+      if (!bot) return jsonError(400, "ALERT_TRADE_BOT", "That bot wasn't found. Pick another bot for the alert.");
+      const broker = bot.broker_account_id ? await mine.brokers.get(bot.broker_account_id) : null;
+      if (!broker?.is_demo) return jsonError(400, "ALERT_TRADE_DEMO_ONLY", "Alert trades work with bots on demo accounts only, for now.");
+      if (a.symbol !== `deriv:${bot.data_symbol}`) return jsonError(400, "ALERT_TRADE_MARKET", `${bot.name} trades a different market from this alert.`);
+    }
+  }
   const row = existing
     ? await store.update(user.id, { ...(patch as Partial<MarketsState>), updated_at: nowIso() })
     : await store.insert({

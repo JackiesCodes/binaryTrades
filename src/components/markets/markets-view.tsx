@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bell, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
 
+import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 
 import { IndicatorsPanel } from "@/components/markets/indicators-panel";
@@ -90,7 +91,8 @@ export function MarketsView() {
   const [ref24, setRef24] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
   // Watchlist, indicators, drawings and alerts: saved to the account (and this browser).
-  const { doc, status: sync, update } = useMarketsState();
+  const { doc, status: sync, update, refusal, clearRefusal } = useMarketsState();
+  const { state } = useDashboard();
   const indicators = doc?.indicators ?? NO_INDICATORS;
   const watchlist = doc?.watchlist ?? NO_IDS;
   const alerts = doc?.alerts ?? NO_ALERTS;
@@ -145,13 +147,27 @@ export function MarketsView() {
   // --- price alerts: checked against live prices while this page is open ---
   const nameOf = useCallback((id: string) => catalog.find((c) => c.id === id)?.name ?? parseSymbolId(id)?.code ?? id, [catalog]);
   const waiting = useMemo(() => activeAlerts(alerts), [alerts]);
+  // Bots an alert on this market may trade with: demo accounts, same Deriv market.
+  const alertBots = useMemo(() => {
+    if (!state || meta?.provider !== "deriv") return [];
+    const demo = new Set(state.brokers.filter((b) => b.is_demo).map((b) => b.id));
+    return state.bots
+      .filter((b) => b.data_symbol === meta.code && b.broker_account_id && demo.has(b.broker_account_id))
+      .map((b) => ({ id: b.id, name: b.name, running: b.status === "running" }));
+  }, [state, meta]);
+  useEffect(() => {
+    if (!refusal) return;
+    toast(refusal, "error", 8000);
+    clearRefusal();
+  }, [refusal, clearRefusal, toast]);
   const waitingRef = useRef(waiting);
   waitingRef.current = waiting;
   const firedIds = useRef(new Set<string>());
   const checkAlerts = useCallback(
     (id: string, price: number | null) => {
       if (price === null) return;
-      const hits = waitingRef.current.filter((a) => a.symbol === id && !firedIds.current.has(a.id) && alertHit(a, price));
+      // Alerts that trade are left to the server (it places the trade within a minute).
+      const hits = waitingRef.current.filter((a) => !a.trade && a.symbol === id && !firedIds.current.has(a.id) && alertHit(a, price));
       if (!hits.length) return;
       const now = new Date().toISOString();
       for (const a of hits) {
@@ -183,8 +199,8 @@ export function MarketsView() {
         firedIds.current.add(a.id);
         const d = priceDecimals(a.triggered_price ?? a.price, catalog.find((c) => c.id === a.symbol)?.pipSize);
         toast(
-          `Price alert: ${nameOf(a.symbol)} went ${a.op} ${formatPrice(a.price, d)}${a.triggered_price != null ? ` (reached ${formatPrice(a.triggered_price, d)})` : ""}`,
-          "success",
+          `Price alert: ${nameOf(a.symbol)} went ${a.op} ${formatPrice(a.price, d)}${a.triggered_price != null ? ` (reached ${formatPrice(a.triggered_price, d)})` : ""}${a.trade_result ? ` · ${a.trade_result}` : ""}`,
+          a.trade_result?.startsWith("Not placed") ? "error" : "success",
           12_000,
         );
       }
@@ -567,6 +583,8 @@ export function MarketsView() {
               decimals={decimals}
               nameOf={nameOf}
               onPick={pick}
+              bots={alertBots}
+              botName={(id) => state?.bots.find((b) => b.id === id)?.name ?? "a deleted bot"}
             />
           )}
           {load.kind === "loading" && <ChartSkeleton />}

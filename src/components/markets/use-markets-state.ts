@@ -41,8 +41,21 @@ async function request(method: "GET" | "PUT", body?: unknown, keepalive = false)
     cache: "no-store",
     keepalive,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { details?: unknown };
+    throw new SaveError(res.status, typeof data.details === "string" ? data.details : `HTTP ${res.status}`);
+  }
   return (await res.json()) as Record<string, unknown>;
+}
+
+/** The server refused a save (HTTP 4xx): retrying the same data won't help. */
+class SaveError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 /**
@@ -54,6 +67,8 @@ async function request(method: "GET" | "PUT", body?: unknown, keepalive = false)
 export function useMarketsState() {
   const [doc, setDoc] = useState<MarketsDoc | null>(null);
   const [status, setStatus] = useState<SyncStatus>("loading");
+  /** Why the server refused the last save, until it's shown. */
+  const [refusal, setRefusal] = useState<string | null>(null);
   const docRef = useRef<MarketsDoc | null>(null);
   const dirty = useRef(new Set<MarketsKey>());
   const loaded = useRef(false); // the account copy has been read
@@ -92,6 +107,14 @@ export function useMarketsState() {
         try {
           await request("PUT", Object.fromEntries(keys.map((k) => [k, docRef.current![k]])));
         } catch (e) {
+          if (e instanceof SaveError && e.status >= 400 && e.status < 500 && e.status !== 401) {
+            // Refused (e.g. an alert trade on a real-account bot): drop that change, show why,
+            // and go back to what the account has.
+            setRefusal(e.message);
+            loaded.current = false;
+            schedule(0);
+            return;
+          }
           keys.forEach((k) => dirty.current.add(k));
           throw e;
         }
@@ -163,5 +186,6 @@ export function useMarketsState() {
     [schedule],
   );
 
-  return { doc, status, update };
+  const clearRefusal = useCallback(() => setRefusal(null), []);
+  return { doc, status, update, refusal, clearRefusal };
 }

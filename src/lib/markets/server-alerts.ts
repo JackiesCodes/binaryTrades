@@ -73,7 +73,13 @@ export function describeFired(a: PriceAlert, reached: number): string {
 }
 
 /** Check every user's waiting alerts against the last minutes of prices; fire the ones reached. */
-export async function checkPriceAlerts(fetchRecent: FetchRecent = fetchRecentCandles): Promise<{ waiting: number; fired: number }> {
+/** Places the trade an alert asks for (the engine's alertTrade); returns what happened, in words. */
+export type PlaceTrade = (userId: string, alert: PriceAlert) => Promise<string>;
+
+export async function checkPriceAlerts(
+  fetchRecent: FetchRecent = fetchRecentCandles,
+  placeTrade: PlaceTrade | null = null,
+): Promise<{ waiting: number; fired: number }> {
   const store = getStore();
   const rows = (await store.markets_state.all()).filter((r) => Array.isArray(r.alerts) && r.alerts.length);
   const users = rows.map((row) => ({ row, waiting: activeAlerts(sanitizeAlerts(row.alerts)) })).filter((u) => u.waiting.length);
@@ -103,14 +109,34 @@ export async function checkPriceAlerts(fetchRecent: FetchRecent = fetchRecentCan
     await store.markets_state.update(row.id, { alerts: sanitizeAlerts(next), updated_at: now });
     fired += firing.length;
 
-    const lines = firing.map((h) => describeFired(h.a, h.price));
+    // Trades the alerts asked for (marked fired first, and each alert can place one trade at most).
+    const results = new Map<string, string>();
+    for (const h of firing) {
+      if (!h.a.trade || !placeTrade) continue;
+      let result: string;
+      try {
+        result = await placeTrade(user.id, h.a);
+      } catch (error) {
+        result = `Not placed: ${(error as Error).message}`;
+      }
+      results.set(h.a.id, result.slice(0, 200));
+    }
+    if (results.size) {
+      const latest = sanitizeAlerts((await store.markets_state.get(row.id))?.alerts ?? []);
+      await store.markets_state.update(row.id, {
+        alerts: sanitizeAlerts(latest.map((x) => (results.has(x.id) ? { ...x, trade_result: results.get(x.id)! } : x))),
+        updated_at: nowIso(),
+      });
+    }
+
+    const lines = firing.map((h) => describeFired(h.a, h.price) + (results.has(h.a.id) ? ` · ${results.get(h.a.id)}` : ""));
     for (const [i, h] of firing.entries()) {
       await log("alert", `Price alert: ${lines[i]}`, {
         user_id: user.id,
         context: { alert_id: h.a.id, symbol: h.a.symbol, level: h.a.price, reached: h.price },
       });
     }
-    const emailed = firing.filter((h) => h.a.email !== false).map((h) => describeFired(h.a, h.price));
+    const emailed = firing.flatMap((h, i) => (h.a.email !== false ? [lines[i]!] : []));
     if (emailed.length && emailEnabled() && user.email && user.email_verified_at) {
       try {
         const mail = priceAlertEmail(emailed, `${appUrl()}/dashboard/markets`);
