@@ -5,7 +5,7 @@
 //  - Binance spot (crypto, with volume) over its public market-data REST API and streams
 // Nothing here needs an API key. Historical candles are cached per symbol and timeframe.
 
-import { aggregate, foldLive, reference24h, timeframe, type Bar, type TimeframeId } from "@/lib/markets/bars";
+import { aggregate, changePercent, foldLive, reference24h, timeframe, type Bar, type TimeframeId } from "@/lib/markets/bars";
 import { ReconnectingSocket, type SocketStatus } from "@/lib/markets/socket";
 import { STARTER_SYMBOLS, fromBinance, fromDeriv, mergeCatalog, parseSymbolId, type DerivActiveSymbol, type MarketSymbol } from "@/lib/markets/symbols";
 
@@ -18,6 +18,13 @@ export class MarketDataError extends Error {
   ) {
     super(message);
   }
+}
+
+/** A watchlist quote: last price, change over 24 hours (%), and whether the market is closed. */
+export interface Quote {
+  price: number | null;
+  change: number | null;
+  closed?: boolean;
 }
 
 export interface StreamHandlers {
@@ -86,6 +93,7 @@ class DerivFeed implements Feed {
   private nextId = 1;
   private pending = new Map<number, { resolve: (j: Json) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private subs = new Map<number, DerivSub>();
+  private ticks = new Map<number, { code: string; derivId: string | null; onPrice: (price: number | null, closed: boolean) => void }>();
   private status: SocketStatus = "connecting";
 
   private ensure(): ReconnectingSocket {
@@ -100,6 +108,7 @@ class DerivFeed implements Feed {
       },
       onOpen: () => {
         for (const sub of this.subs.values()) this.subscribe(sub);
+        for (const [key, t] of this.ticks) this.socket?.send({ ticks: t.code, subscribe: 1, req_id: key });
       },
       onMessage: (text) => this.onMessage(text),
     });
@@ -114,6 +123,18 @@ class DerivFeed implements Feed {
       return;
     }
     const reqId = typeof j.req_id === "number" ? j.req_id : null;
+    if (reqId && this.ticks.has(reqId)) {
+      const t = this.ticks.get(reqId)!;
+      const err = j.error as Json | undefined;
+      if (err) {
+        if (err.code === "MarketIsClosed") t.onPrice(null, true);
+        return;
+      }
+      const tick = j.tick as Json | undefined;
+      t.derivId = String((j.subscription as Json | undefined)?.id ?? tick?.id ?? "") || t.derivId;
+      if (tick && Number.isFinite(Number(tick.quote))) t.onPrice(Number(tick.quote), false);
+      return;
+    }
     if (j.msg_type === "ohlc") {
       const o = j.ohlc as Json;
       const id = (j.subscription as Json | undefined)?.id ?? o.id;
@@ -213,8 +234,26 @@ class DerivFeed implements Feed {
   }
 
   async reference24h(code: string): Promise<number | null> {
+    return (await this.lastDay(code)).reference;
+  }
+
+  /** Last price and the price 24 hours earlier, from hourly candles (works while the market is closed). */
+  async lastDay(code: string): Promise<{ reference: number | null; last: number | null }> {
     const j = await this.request({ ticks_history: code, style: "candles", granularity: 3600, count: 25, end: "latest" });
-    return reference24h(((j.candles as Json[] | undefined) ?? []).map(toBar));
+    const bars = ((j.candles as Json[] | undefined) ?? []).map(toBar);
+    return { reference: reference24h(bars), last: bars.at(-1)?.close ?? null };
+  }
+
+  /** Live prices for several markets on the shared connection. */
+  watchTicks(code: string, onPrice: (price: number | null, closed: boolean) => void): () => void {
+    const key = this.nextId++;
+    this.ticks.set(key, { code, derivId: null, onPrice });
+    this.ensure().send({ ticks: code, subscribe: 1, req_id: key });
+    return () => {
+      const t = this.ticks.get(key);
+      this.ticks.delete(key);
+      if (t?.derivId) this.socket?.send({ forget: t.derivId });
+    };
   }
 
   catalog(): Promise<MarketSymbol[]> {
@@ -228,6 +267,7 @@ class DerivFeed implements Feed {
     for (const p of this.pending.values()) clearTimeout(p.timer);
     this.pending.clear();
     this.subs.clear();
+    this.ticks.clear();
     this.socket?.close();
     this.socket = null;
   }
@@ -318,6 +358,32 @@ class BinanceFeed implements Feed {
     return Number(t.openPrice) || null;
   }
 
+  /** Live price and 24h change for several pairs over one combined stream (plus a snapshot to start). */
+  watchQuotes(codes: string[], onQuote: (code: string, q: Quote) => void): () => void {
+    let stopped = false;
+    const quote = (c: number, o: number): Quote => ({ price: c, change: o ? ((c - o) / o) * 100 : null });
+    this.get<Array<{ symbol: string; lastPrice: string; openPrice: string }>>(`/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(codes))}&type=MINI`)
+      .then((rows) => {
+        if (!stopped) for (const r of rows) onQuote(r.symbol, quote(Number(r.lastPrice), Number(r.openPrice)));
+      })
+      .catch(() => {});
+    const socket = new ReconnectingSocket({
+      url: `${BINANCE_WS.replace(/\/ws$/, "")}/stream?streams=${codes.map((c) => `${c.toLowerCase()}@miniTicker`).join("/")}`,
+      onMessage: (text) => {
+        try {
+          const d = (JSON.parse(text) as { data?: { s: string; c: string; o: string } }).data;
+          if (d) onQuote(d.s, quote(Number(d.c), Number(d.o)));
+        } catch {
+          // ignore malformed frames
+        }
+      },
+    });
+    return () => {
+      stopped = true;
+      socket.close();
+    };
+  }
+
   catalog(): Promise<MarketSymbol[]> {
     return cached("bt.markets.binance.v1", CATALOG_TTL, async () => fromBinance(await this.get<Array<{ symbol: string }>>("/api/v3/ticker/price")));
   }
@@ -387,6 +453,20 @@ class MockFeed implements Feed {
     return this.seed(code) * 0.98;
   }
 
+  watchQuotes(ids: string[], onQuote: (id: string, q: Quote) => void): () => void {
+    const tick = () =>
+      ids.forEach((id) => {
+        const code = parseSymbolId(id)?.code ?? id;
+        if (code.includes("XAU")) return onQuote(id, { price: this.seed(code), change: 2, closed: true });
+        const p = this.seed(code) * (1 + (Math.random() - 0.5) * 0.002);
+        this.price.set(code, p);
+        onQuote(id, { price: p, change: ((p - this.seed(code) * 0.98) / (this.seed(code) * 0.98)) * 100 });
+      });
+    tick();
+    const t = setInterval(tick, 700);
+    return () => clearInterval(t);
+  }
+
   async catalog() {
     return [...STARTER_SYMBOLS, { id: "binance:NOPEUSDT", provider: "binance" as const, code: "NOPEUSDT", name: "NOPE/USDT (test: not found)", group: "Crypto", hasVolume: true }];
   }
@@ -447,6 +527,42 @@ export function load24hReference(id: string): Promise<number | null> {
   } catch (e) {
     return Promise.reject(e);
   }
+}
+
+/** Live quotes for a watchlist; returns a function that stops them. Calls onQuote with the market id. */
+export function watchQuotes(ids: string[], onQuote: (id: string, q: Quote) => void): () => void {
+  if (mockFeedOn()) {
+    mock ??= new MockFeed();
+    return mock.watchQuotes(ids, onQuote);
+  }
+  const stops: Array<() => void> = [];
+  const parsed = ids.map(parseSymbolId).filter(Boolean) as Array<{ provider: "deriv" | "binance"; code: string }>;
+  const bn = parsed.filter((p) => p.provider === "binance").map((p) => p.code);
+  if (bn.length) stops.push((binance ??= new BinanceFeed()).watchQuotes(bn, (code, q) => onQuote(`binance:${code}`, q)));
+  for (const { code } of parsed.filter((p) => p.provider === "deriv")) {
+    const d = (deriv ??= new DerivFeed());
+    let reference: number | null = null;
+    let last: number | null = null;
+    let closed = false;
+    let live = true;
+    const emit = () => live && onQuote(`deriv:${code}`, { price: last, change: changePercent(last, reference), closed });
+    d.lastDay(code)
+      .then((r) => {
+        reference = r.reference;
+        if (last === null) last = r.last;
+        emit();
+      })
+      .catch(() => {});
+    stops.push(
+      d.watchTicks(code, (price, isClosed) => {
+        closed = isClosed;
+        if (price !== null) last = price;
+        emit();
+      }),
+    );
+    stops.push(() => (live = false));
+  }
+  return () => stops.forEach((s) => s());
 }
 
 /** Every market we can chart: starter markets first, then Deriv's list, then Binance pairs. */

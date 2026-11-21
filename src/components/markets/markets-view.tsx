@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Moon, RefreshCw, SearchX, SlidersHorizontal, Sun, X } from "lucide-react";
+import { AlertTriangle, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
+
+import { useFeedback } from "@/components/app/feedback";
 
 import { IndicatorsPanel } from "@/components/markets/indicators-panel";
 import { CHART_TYPES, PriceChart, type ChartType, type PriceChartHandle } from "@/components/markets/price-chart";
 import { SymbolSearch, type SymbolSearchHandle } from "@/components/markets/symbol-search";
+import { MAX_WATCHLIST, Watchlist, sanitizeWatchlist } from "@/components/markets/watchlist";
+import { DRAW_TOOLS, MAX_DRAWINGS_PER_SYMBOL, sanitizeDrawingStore, type DrawTool, type Drawing, type DrawingStore } from "@/lib/markets/drawings";
 import { TIMEFRAMES, changePercent, formatPrice, isTimeframe, priceDecimals, timeframe, type TimeframeId } from "@/lib/markets/bars";
 import { indicatorLabel, sanitizeIndicators, type IndicatorConfig } from "@/lib/markets/indicators";
 import { MarketDataError, disposeFeeds, load24hReference, loadCatalog, loadHistory, streamBars, type FeedStatus } from "@/lib/markets/feeds";
@@ -20,6 +24,27 @@ interface Prefs {
   tf: TimeframeId;
   theme: MarketsTheme;
   chartType: ChartType;
+  /** Desktop: the watchlist panel is open. */
+  watchOpen: boolean;
+}
+
+const WATCHLIST_KEY = "bt.markets.watchlist.v1";
+const DRAWINGS_KEY = "bt.markets.drawings.v1";
+
+function readJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? undefined : JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // storage unavailable or full: still works for this visit
+  }
 }
 
 const INDICATORS_KEY = "bt.markets.indicators.v1";
@@ -33,7 +58,7 @@ function readIndicators(): IndicatorConfig[] {
 }
 
 function readPrefs(): Prefs {
-  const prefs: Prefs = { symbol: DEFAULT_SYMBOL, tf: "1h", theme: "dark", chartType: "candles" };
+  const prefs: Prefs = { symbol: DEFAULT_SYMBOL, tf: "1h", theme: "dark", chartType: "candles", watchOpen: true };
   try {
     Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}"));
   } catch {
@@ -45,6 +70,7 @@ function readPrefs(): Prefs {
   if (!isTimeframe(prefs.tf)) prefs.tf = "1h";
   if (prefs.theme !== "light") prefs.theme = "dark";
   if (!CHART_TYPES.some((t) => t.id === prefs.chartType)) prefs.chartType = "candles";
+  prefs.watchOpen = prefs.watchOpen !== false;
   return prefs;
 }
 
@@ -99,6 +125,20 @@ export function MarketsView() {
       // storage unavailable: still works for this visit
     }
   }, []);
+  const { confirm } = useFeedback();
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [drawingStore, setDrawingStore] = useState<DrawingStore>({});
+  const [tool, setTool] = useState<DrawTool | null>(null);
+  const [sheet, setSheet] = useState(false);
+  useEffect(() => {
+    setWatchlist(sanitizeWatchlist(readJson(WATCHLIST_KEY)));
+    setDrawingStore(sanitizeDrawingStore(readJson(DRAWINGS_KEY)));
+  }, []);
+  const changeWatchlist = useCallback((next: string[]) => {
+    const list = next.slice(0, MAX_WATCHLIST);
+    setWatchlist(list);
+    writeJson(WATCHLIST_KEY, list);
+  }, []);
   const chart = useRef<PriceChartHandle>(null);
   const search = useRef<SymbolSearchHandle>(null);
   const lastPrice = useRef<number | null>(null);
@@ -125,6 +165,26 @@ export function MarketsView() {
   if (price != null || meta?.pipSize) lastDecimals.current = priceDecimals(price ?? 1, meta?.pipSize);
   const decimals = lastDecimals.current;
   const palette = PALETTES[prefs?.theme ?? "dark"];
+
+  const symbolId = prefs?.symbol ?? "";
+  const drawings = useMemo(() => drawingStore[symbolId] ?? [], [drawingStore, symbolId]);
+  const changeDrawings = useCallback(
+    (next: Drawing[]) =>
+      setDrawingStore((store) => {
+        const out = { ...store };
+        if (next.length) out[symbolId] = next.slice(-MAX_DRAWINGS_PER_SYMBOL);
+        else delete out[symbolId];
+        writeJson(DRAWINGS_KEY, out);
+        return out;
+      }),
+    [symbolId],
+  );
+  useEffect(() => setTool(null), [symbolId]);
+  const watched = watchlist.includes(symbolId);
+  const pick = useCallback((id: string) => {
+    setPrefs((p) => (p ? { ...p, symbol: id } : p));
+    setSheet(false);
+  }, []);
 
   // History, then the live stream, for the chosen market and timeframe.
   useEffect(() => {
@@ -204,6 +264,9 @@ export function MarketsView() {
       } else if (e.key === "/") {
         search.current?.focus();
         e.preventDefault();
+      } else if (e.key === "w" || e.key === "W") {
+        if (window.matchMedia("(min-width: 1024px)").matches) setPrefs((p) => (p ? { ...p, watchOpen: !p.watchOpen } : p));
+        else setSheet((v) => !v);
       } else if (e.key === "i" || e.key === "I") {
         setPanel((p) => (p ? null : { edit: null }));
       } else if (e.key === "t" || e.key === "T") {
@@ -226,14 +289,30 @@ export function MarketsView() {
     >
       {/* Top bar */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-2.5">
-        <SymbolSearch ref={search} catalog={catalog} current={meta} loading={catalogLoading} onPick={(s) => set({ symbol: s.id })} />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none">
+          <SymbolSearch ref={search} catalog={catalog} current={meta} loading={catalogLoading} onPick={(s) => set({ symbol: s.id })} />
+          <button
+            type="button"
+            onClick={() => changeWatchlist(watched ? watchlist.filter((x) => x !== symbolId) : [...watchlist, symbolId])}
+            disabled={!meta || (!watched && watchlist.length >= MAX_WATCHLIST)}
+            aria-pressed={watched}
+            aria-label={watched ? `Remove ${meta?.name ?? "market"} from the watchlist` : `Add ${meta?.name ?? "market"} to the watchlist`}
+            title={watched ? "In your watchlist" : "Add to watchlist"}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)] disabled:opacity-40"
+          >
+            <Star className={cn("h-4 w-4", watched && "fill-[var(--mk-accent)] text-[var(--mk-accent)]")} />
+          </button>
+        </div>
 
         <div className="order-3 flex w-full min-w-0 items-baseline gap-2 sm:order-none sm:w-auto" aria-live="off">
           <span className="font-mono text-lg font-semibold tabular-nums text-[var(--mk-text)]" aria-label="Current price">
             {formatPrice(price, decimals)}
           </span>
           <span
-            className={cn("font-mono text-xs font-semibold tabular-nums", change === null ? "text-[var(--mk-muted)]" : change >= 0 ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]")}
+            className={cn(
+              "font-mono text-xs font-semibold tabular-nums",
+              change === null ? "text-[var(--mk-muted)]" : change >= 0 ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]",
+            )}
             aria-label="Change over 24 hours"
             title="Change over the last 24 hours"
           >
@@ -253,6 +332,22 @@ export function MarketsView() {
           </span>
           <button
             type="button"
+            onClick={() => {
+              if (window.matchMedia("(min-width: 1024px)").matches) set({ watchOpen: !prefs?.watchOpen });
+              else setSheet((v) => !v);
+            }}
+            aria-label="Watchlist (W)"
+            aria-expanded={sheet || undefined}
+            title="Watchlist (W)"
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-lg border text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+              prefs?.watchOpen ? "border-[var(--mk-border)] lg:border-[var(--mk-accent)] lg:text-[var(--mk-text)]" : "border-[var(--mk-border)]",
+            )}
+          >
+            <List className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => set({ theme: prefs?.theme === "dark" ? "light" : "dark" })}
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]"
             aria-label={prefs?.theme === "dark" ? "Switch chart to light theme (T)" : "Switch chart to dark theme (T)"}
@@ -262,7 +357,11 @@ export function MarketsView() {
           </button>
         </div>
 
-        <div role="radiogroup" aria-label="Timeframe" className="scrollbar-none order-4 -mx-1 flex w-full gap-1 overflow-x-auto px-1 sm:order-none sm:mx-0 sm:w-auto sm:px-0">
+        <div
+          role="radiogroup"
+          aria-label="Timeframe"
+          className="scrollbar-none order-4 -mx-1 flex w-full gap-1 overflow-x-auto px-1 sm:order-none sm:mx-0 sm:w-auto sm:px-0"
+        >
           {TIMEFRAMES.map((t, i) => {
             const on = prefs?.tf === t.id;
             return (
@@ -300,13 +399,56 @@ export function MarketsView() {
                 aria-label={t.label}
                 title={t.label}
                 onClick={() => set({ chartType: t.id })}
-                className={cn("h-8 rounded-md px-2.5 text-xs font-semibold", on ? "bg-[var(--mk-raised)] text-[var(--mk-text)]" : "text-[var(--mk-muted)] hover:text-[var(--mk-text)]")}
+                className={cn(
+                  "h-8 rounded-md px-2.5 text-xs font-semibold",
+                  on ? "bg-[var(--mk-raised)] text-[var(--mk-text)]" : "text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+                )}
               >
                 <span className="sm:hidden">{t.short}</span>
                 <span className="hidden sm:inline">{t.label}</span>
               </button>
             );
           })}
+        </div>
+        <div role="group" aria-label="Drawing tools" className="flex shrink-0 items-center rounded-lg border border-[var(--mk-border)] p-0.5">
+          {DRAW_TOOLS.map((t) => {
+            const on = tool === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                aria-pressed={on}
+                aria-label={`${t.label}${on ? " (Esc to cancel)" : ""}`}
+                title={t.label}
+                onClick={() => setTool(on ? null : t.id)}
+                className={cn(
+                  "inline-flex h-8 w-9 items-center justify-center rounded-md",
+                  on ? "bg-[var(--mk-accent)] text-[var(--mk-bg)]" : "text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+                )}
+              >
+                <ToolIcon tool={t.id} />
+              </button>
+            );
+          })}
+          {drawings.length > 0 && (
+            <button
+              type="button"
+              aria-label={`Remove all ${drawings.length} drawings on this market`}
+              title="Remove all drawings on this market"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Remove all drawings?",
+                  description: `Removes the ${drawings.length} drawing${drawings.length === 1 ? "" : "s"} on ${meta?.name ?? "this market"}. Other markets keep theirs.`,
+                  confirmLabel: "Remove drawings",
+                  danger: true,
+                });
+                if (ok) changeDrawings([]);
+              }}
+              className="inline-flex h-8 w-9 items-center justify-center rounded-md text-[var(--mk-muted)] hover:text-[var(--mk-down)]"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -320,11 +462,18 @@ export function MarketsView() {
         >
           <SlidersHorizontal className="h-4 w-4" aria-hidden />
           Indicators
-          {indicators.length > 0 && <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{indicators.length}</span>}
+          {indicators.length > 0 && (
+            <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{indicators.length}</span>
+          )}
         </button>
         {indicators.map((c) => (
           <span key={c.id} className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--mk-border)] text-xs text-[var(--mk-text)]">
-            <button type="button" className="flex h-full items-center gap-1.5 pl-2 pr-1" onClick={() => setPanel({ edit: c.id })} title={`Edit ${indicatorLabel(c)}`}>
+            <button
+              type="button"
+              className="flex h-full items-center gap-1.5 pl-2 pr-1"
+              onClick={() => setPanel({ edit: c.id })}
+              title={`Edit ${indicatorLabel(c)}`}
+            >
               <span className="h-2 w-2 rounded-full" style={{ background: c.color }} aria-hidden />
               <span className="font-mono">{indicatorLabel(c)}</span>
             </button>
@@ -340,47 +489,104 @@ export function MarketsView() {
         ))}
       </div>
 
-      {/* Chart */}
-      <div className="relative min-h-0 flex-1">
-        {meta && (
-          <PriceChart
-            ref={chart}
-            palette={palette}
-            decimals={decimals}
-            hasVolume={meta.hasVolume}
-            title={`${meta.name} · ${tfName}`}
-            chartType={prefs?.chartType ?? "candles"}
-            indicators={indicators}
-            className="h-full"
-          />
+      <div className="relative flex min-h-0 flex-1">
+        {/* Chart */}
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {meta && (
+            <PriceChart
+              ref={chart}
+              palette={palette}
+              decimals={decimals}
+              hasVolume={meta.hasVolume}
+              title={`${meta.name} · ${tfName}`}
+              chartType={prefs?.chartType ?? "candles"}
+              indicators={indicators}
+              timeframe={timeframe(prefs?.tf ?? "1h")?.seconds ?? 3600}
+              drawings={drawings}
+              onDrawingsChange={changeDrawings}
+              tool={tool}
+              onToolDone={() => setTool(null)}
+              className="h-full"
+            />
+          )}
+          {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
+          {load.kind === "loading" && <ChartSkeleton />}
+          {load.kind === "ready" && load.empty && (
+            <Overlay icon={SearchX} title="No candles yet" body="This market has no price history for this timeframe. Try another timeframe." />
+          )}
+          {load.kind === "error" && (
+            <Overlay
+              icon={load.notFound ? SearchX : AlertTriangle}
+              title={load.notFound ? "Symbol not found" : "Market data unavailable"}
+              body={load.notFound ? "We couldn't find that market. Search for another one above." : load.message.replace(/^Market data unavailable — /, "")}
+              action={
+                load.notFound ? (
+                  <button
+                    type="button"
+                    className="rounded-lg bg-[var(--mk-accent)] px-3 py-2 text-sm font-semibold text-[var(--mk-bg)]"
+                    onClick={() => search.current?.focus()}
+                  >
+                    Search markets
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--mk-accent)] px-3 py-2 text-sm font-semibold text-[var(--mk-bg)]"
+                    onClick={() => setRetry((r) => r + 1)}
+                  >
+                    <RefreshCw className="h-4 w-4" /> Try again
+                  </button>
+                )
+              }
+            />
+          )}
+          {load.kind === "ready" && status.s === "market-closed" && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-10 z-10 flex justify-center px-3">
+              <span className="rounded-full border border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1 text-xs text-[var(--mk-muted)]">
+                {status.detail ?? "Market closed"}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Watchlist: a side panel on desktop, a bottom sheet on phones */}
+        {prefs?.watchOpen && (
+          <aside className="hidden w-[272px] shrink-0 flex-col border-l border-[var(--mk-border)] bg-[var(--mk-panel)] lg:flex" aria-label="Watchlist">
+            <div className="flex items-center justify-between px-3 pt-2.5">
+              <h2 className="text-sm font-semibold text-[var(--mk-text)]">Watchlist</h2>
+              <button
+                type="button"
+                onClick={() => set({ watchOpen: false })}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)]"
+                aria-label="Hide watchlist"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <Watchlist
+              ids={watchlist}
+              catalog={catalog}
+              catalogLoading={catalogLoading}
+              currentId={symbolId}
+              onPick={pick}
+              onAdd={(id) => changeWatchlist([...watchlist, id])}
+              onRemove={(id) => changeWatchlist(watchlist.filter((x) => x !== id))}
+            />
+          </aside>
         )}
-        {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
-        {load.kind === "loading" && <ChartSkeleton />}
-        {load.kind === "ready" && load.empty && (
-          <Overlay icon={SearchX} title="No candles yet" body="This market has no price history for this timeframe. Try another timeframe." />
-        )}
-        {load.kind === "error" && (
-          <Overlay
-            icon={load.notFound ? SearchX : AlertTriangle}
-            title={load.notFound ? "Symbol not found" : "Market data unavailable"}
-            body={load.notFound ? "We couldn't find that market. Search for another one above." : load.message.replace(/^Market data unavailable — /, "")}
-            action={
-              load.notFound ? (
-                <button type="button" className="rounded-lg bg-[var(--mk-accent)] px-3 py-2 text-sm font-semibold text-[var(--mk-bg)]" onClick={() => search.current?.focus()}>
-                  Search markets
-                </button>
-              ) : (
-                <button type="button" className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--mk-accent)] px-3 py-2 text-sm font-semibold text-[var(--mk-bg)]" onClick={() => setRetry((r) => r + 1)}>
-                  <RefreshCw className="h-4 w-4" /> Try again
-                </button>
-              )
-            }
-          />
-        )}
-        {load.kind === "ready" && status.s === "market-closed" && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-10 z-10 flex justify-center px-3">
-            <span className="rounded-full border border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1 text-xs text-[var(--mk-muted)]">{status.detail ?? "Market closed"}</span>
-          </div>
+        {sheet && (
+          <WatchlistSheet onClose={() => setSheet(false)}>
+            <Watchlist
+              ids={watchlist}
+              catalog={catalog}
+              catalogLoading={catalogLoading}
+              currentId={symbolId}
+              onPick={pick}
+              onAdd={(id) => changeWatchlist([...watchlist, id])}
+              onRemove={(id) => changeWatchlist(watchlist.filter((x) => x !== id))}
+              touch
+            />
+          </WatchlistSheet>
         )}
       </div>
 
@@ -388,8 +594,15 @@ export function MarketsView() {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5 text-[11px] text-[var(--mk-muted)]">
         <span>Data: {meta?.provider === "deriv" ? "Deriv" : meta?.provider === "binance" ? "Binance" : "—"}</span>
         {meta && !meta.hasVolume && <span>No volume published for this market</span>}
-        <span className="hidden lg:inline">Keys: 1–7 timeframe · / search · I indicators · T theme</span>
-        <a className="ml-auto underline-offset-2 hover:text-[var(--mk-text)] hover:underline" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">
+        <span className="hidden lg:inline">
+          Keys: 1–7 timeframe · / search · I indicators · W watchlist · T theme · Esc cancel drawing · Del delete drawing
+        </span>
+        <a
+          className="ml-auto underline-offset-2 hover:text-[var(--mk-text)] hover:underline"
+          href="https://www.tradingview.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Charts by TradingView
         </a>
       </div>
@@ -403,7 +616,11 @@ function ChartSkeleton() {
       <div className="h-4 w-56 animate-pulse rounded bg-[var(--mk-raised)]" />
       <div className="flex flex-1 items-end gap-1.5 overflow-hidden">
         {Array.from({ length: 48 }, (_, i) => (
-          <div key={i} className="w-full animate-pulse rounded-sm bg-[var(--mk-raised)]" style={{ height: `${30 + ((i * 37) % 50)}%`, animationDelay: `${(i % 8) * 80}ms` }} />
+          <div
+            key={i}
+            className="w-full animate-pulse rounded-sm bg-[var(--mk-raised)]"
+            style={{ height: `${30 + ((i * 37) % 50)}%`, animationDelay: `${(i % 8) * 80}ms` }}
+          />
         ))}
       </div>
       <div className="h-3 w-full animate-pulse rounded bg-[var(--mk-raised)]" />
@@ -419,5 +636,74 @@ function Overlay({ icon: Icon, title, body, action }: { icon: typeof SearchX; ti
       <p className="max-w-sm text-sm text-[var(--mk-muted)]">{body}</p>
       {action && <div className="mt-2">{action}</div>}
     </div>
+  );
+}
+
+function WatchlistSheet({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="absolute inset-0 z-40 flex flex-col justify-end lg:hidden">
+      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close watchlist" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-label="Watchlist"
+        className="relative flex max-h-[80%] min-h-[50%] flex-col rounded-t-2xl border-t border-[var(--mk-border)] bg-[var(--mk-panel)] shadow-glass"
+      >
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-[var(--mk-border)]" aria-hidden />
+        <div className="flex items-center justify-between px-3 pt-1">
+          <h2 className="text-sm font-semibold text-[var(--mk-text)]">Watchlist</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)]"
+            aria-label="Close watchlist"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Small original icons for the drawing tools. */
+function ToolIcon({ tool }: { tool: DrawTool }) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 18 18",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.6,
+    strokeLinecap: "round" as const,
+    "aria-hidden": true,
+  };
+  if (tool === "trend")
+    return (
+      <svg {...common}>
+        <line x1="3" y1="14" x2="15" y2="4" />
+        <circle cx="3" cy="14" r="1.6" fill="currentColor" />
+        <circle cx="15" cy="4" r="1.6" fill="currentColor" />
+      </svg>
+    );
+  if (tool === "hline")
+    return (
+      <svg {...common}>
+        <line x1="2" y1="9" x2="16" y2="9" />
+        <circle cx="9" cy="9" r="1.6" fill="currentColor" />
+      </svg>
+    );
+  return (
+    <svg {...common}>
+      <line x1="2" y1="3.5" x2="16" y2="3.5" />
+      <line x1="2" y1="7.5" x2="16" y2="7.5" opacity="0.7" />
+      <line x1="2" y1="10.5" x2="16" y2="10.5" opacity="0.7" />
+      <line x1="2" y1="14.5" x2="16" y2="14.5" />
+    </svg>
   );
 }

@@ -11,8 +11,21 @@ export interface SymbolSearchHandle {
 }
 
 /** Market search with autocomplete: type a code or name, pick with arrows + Enter or a tap. */
-export const SymbolSearch = forwardRef<SymbolSearchHandle, { catalog: MarketSymbol[]; current: MarketSymbol | null; loading: boolean; onPick: (s: MarketSymbol) => void }>(
-  function SymbolSearch({ catalog, current, loading, onPick }, ref) {
+export const SymbolSearch = forwardRef<
+  SymbolSearchHandle,
+  {
+    catalog: MarketSymbol[];
+    current: MarketSymbol | null;
+    loading: boolean;
+    onPick: (s: MarketSymbol) => void;
+    /** Placeholder when there is no current market (e.g. "Add a market"). */
+    placeholder?: string;
+    label?: string;
+    className?: string;
+    /** Open the suggestions towards the left (for a search on the right edge). */
+    alignRight?: boolean;
+  }
+>(function SymbolSearch({ catalog, current, loading, onPick, placeholder = "Search markets", label = "Search markets", className, alignRight }, ref) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
     const [hi, setHi] = useState(0);
@@ -41,10 +54,10 @@ export const SymbolSearch = forwardRef<SymbolSearchHandle, { catalog: MarketSymb
     };
 
     return (
-      <div ref={wrap} className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
+      <div ref={wrap} className={cn("relative min-w-0 flex-1 sm:w-64 sm:flex-none", className)}>
         <label className="flex h-10 items-center gap-2 rounded-xl border border-[var(--mk-border)] bg-[var(--mk-raised)] px-3 focus-within:border-[var(--mk-accent)]">
           <Search className="h-4 w-4 shrink-0 text-[var(--mk-muted)]" aria-hidden />
-          <span className="sr-only">Search markets</span>
+          <span className="sr-only">{label}</span>
           <input
             ref={input}
             role="combobox"
@@ -53,7 +66,7 @@ export const SymbolSearch = forwardRef<SymbolSearchHandle, { catalog: MarketSymb
             aria-autocomplete="list"
             aria-activedescendant={open && results[hi] ? `${listId}-${hi}` : undefined}
             className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold text-[var(--mk-text)] outline-none placeholder:font-normal placeholder:text-[var(--mk-muted)]"
-            placeholder={current ? current.name : "Search markets"}
+            placeholder={current ? current.name : placeholder}
             value={open ? q : current?.name ?? ""}
             onFocus={() => {
               setOpen(true);
@@ -87,7 +100,10 @@ export const SymbolSearch = forwardRef<SymbolSearchHandle, { catalog: MarketSymb
             id={listId}
             role="listbox"
             aria-label="Markets"
-            className="scrollbar-thin absolute left-0 right-0 top-12 z-50 max-h-[min(420px,60dvh)] sm:right-auto sm:w-[360px] overflow-y-auto rounded-xl border border-[var(--mk-border)] bg-[var(--mk-panel)] p-1 shadow-glass"
+            className={cn(
+              "scrollbar-thin absolute left-0 right-0 top-12 z-50 max-h-[min(420px,60dvh)] overflow-y-auto rounded-xl border border-[var(--mk-border)] bg-[var(--mk-panel)] p-1 shadow-glass sm:w-[360px]",
+              alignRight ? "sm:left-auto sm:right-0" : "sm:right-auto",
+            )}
           >
             {results.map((s, i) => (
               <li

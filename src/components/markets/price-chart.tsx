@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   ColorType,
   CrosshairMode,
@@ -18,7 +18,9 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 
+import { DrawingLayer, type ChartCoords } from "@/components/markets/drawing-layer";
 import { formatPrice, formatVolume, type Bar } from "@/lib/markets/bars";
+import { logicalToTime, timeToLogical, type DrawTool, type Drawing } from "@/lib/markets/drawings";
 import { computeIndicator, heikinAshi, heikinAshiNext, indicatorLabel, isPane, type IndicatorConfig } from "@/lib/markets/indicators";
 import type { Palette } from "@/lib/markets/theme";
 import { cn } from "@/lib/utils";
@@ -47,6 +49,12 @@ interface Props {
   title: string;
   chartType: ChartType;
   indicators: IndicatorConfig[];
+  /** Candle length in seconds (to place drawings beyond the newest candle). */
+  timeframe: number;
+  drawings: Drawing[];
+  onDrawingsChange: (next: Drawing[]) => void;
+  tool: DrawTool | null;
+  onToolDone: () => void;
   className?: string;
 }
 
@@ -94,7 +102,10 @@ const seriesKey = (c: IndicatorConfig) => c.type;
  * The Markets chart: price (candles, line, area or Heikin-Ashi) with volume, indicator overlays,
  * and RSI / MACD panes underneath that zoom, scroll and follow the crosshair together.
  */
-export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart({ palette, decimals, hasVolume, title, chartType, indicators, className }, ref) {
+export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart(
+  { palette, decimals, hasVolume, title, chartType, indicators, timeframe, drawings, onDrawingsChange, tool, onToolDone, className },
+  ref,
+) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candleS = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -119,6 +130,8 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
   typeRef.current = chartType;
   const indRef = useRef(indicators);
   indRef.current = indicators;
+  const tfRef = useRef(timeframe);
+  tfRef.current = timeframe;
 
   /** Candle index under the crosshair (null = the newest candle). */
   const [hover, setHover] = useState<number | null>(null);
@@ -487,6 +500,30 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     [],
   );
 
+  // --- drawings --------------------------------------------------------------------
+
+  const coords = useMemo<ChartCoords>(() => {
+    const active = () => (typeRef.current === "line" ? lineS.current : typeRef.current === "area" ? areaS.current : candleS.current) as AnySeries | null;
+    const times = () => bars.current.map((b) => b.time);
+    return {
+      pane: () => {
+        const c = chart.current;
+        if (!c || !bars.current.length) return null;
+        const size = c.paneSize();
+        return size.width > 0 && size.height > 0 ? size : null;
+      },
+      timeToX: (t) => chart.current?.timeScale().logicalToCoordinate(timeToLogical(times(), t, tfRef.current) as never) ?? null,
+      priceToY: (p) => active()?.priceToCoordinate(p) ?? null,
+      xToLogical: (x) => {
+        const l = chart.current?.timeScale().coordinateToLogical(x);
+        return l === null || l === undefined ? null : Number(l);
+      },
+      logicalToTime: (l) => logicalToTime(times(), l, tfRef.current),
+      timeToLogical: (t) => timeToLogical(times(), t, tfRef.current),
+      yToPrice: (y) => active()?.coordinateToPrice(y) ?? null,
+    };
+  }, []);
+
   // --- legends ------------------------------------------------------------------
 
   const idx = hover ?? bars.current.length - 1;
@@ -505,6 +542,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="relative min-h-[140px] flex-1">
         <div ref={box} className="absolute inset-0" />
+        <DrawingLayer coords={coords} drawings={drawings} onChange={onDrawingsChange} tool={tool} onToolDone={onToolDone} palette={palette} decimals={decimals} />
         <div
           data-legend="main"
           className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex max-w-[calc(100%-5.5rem)] flex-col gap-0.5 rounded-lg px-1.5 py-0.5 font-mono text-[10px] text-[var(--mk-muted)] sm:left-2 sm:top-2 sm:py-1 sm:text-xs"
