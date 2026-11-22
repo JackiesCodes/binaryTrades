@@ -31,6 +31,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const next = await api<DashboardState>("/api/state");
+      // Only a complete answer replaces what's on screen; anything else keeps the last good state.
+      if (!isDashboardState(next)) throw new Error("Incomplete dashboard data");
       setState(next);
       setError(null);
       // Until you pick, show real accounts — or demo when demo accounts are all you have.
@@ -82,4 +84,21 @@ export function useDashboard(): DashboardContextValue {
   const ctx = useContext(DashboardContext);
   if (!ctx) throw new Error("useDashboard must be used inside DashboardProvider");
   return ctx;
+}
+
+function isDashboardState(x: unknown): x is DashboardState {
+  const s = x as Partial<DashboardState> | null;
+  return Boolean(
+    s &&
+      typeof s === "object" &&
+      s.settings &&
+      typeof s.settings === "object" &&
+      Array.isArray(s.brokers) &&
+      Array.isArray(s.bots) &&
+      Array.isArray(s.open_trades) &&
+      Array.isArray(s.closed_trades) &&
+      Array.isArray(s.logs) &&
+      s.kpis &&
+      s.meta,
+  );
 }

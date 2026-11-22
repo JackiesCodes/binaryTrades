@@ -15,7 +15,7 @@ export function useKillSwitch() {
   const { state, refresh } = useDashboard();
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
-  const on = state?.settings.kill_switch ?? false;
+  const on = state?.settings?.kill_switch ?? false;
 
   const toggle = async () => {
     const ok = await confirm(

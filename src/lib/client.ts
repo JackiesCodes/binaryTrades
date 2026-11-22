@@ -78,7 +78,17 @@ export async function api<T = unknown>(path: string, method = "GET", body?: unkn
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
-  const data = await res.json().catch(() => ({}));
+  let data: unknown = {};
+  const text = await res.text().catch(() => null);
+  if (text === null) throw new ApiError("The connection dropped before the server finished answering. Try again.");
+  if (text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // A cut-off or non-JSON answer (flaky mobile connection, a proxy page): never hand it back as data.
+      if (res.ok) throw new ApiError("Couldn't read the server's answer. Check your connection and try again.");
+    }
+  }
   if (res.status === 401 && (data as { error?: string }).error === "UNAUTHENTICATED") {
     // Clear a cookie that is signed but no longer valid (password changed elsewhere), then sign in again.
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
