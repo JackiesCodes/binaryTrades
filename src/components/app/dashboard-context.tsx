@@ -28,11 +28,29 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [lastTick, setLastTick] = useState<string | null>(null);
   const viewChosen = useRef(false);
 
+  const etag = useRef<string | null>(null);
+
   const refresh = useCallback(async () => {
     try {
-      const next = await api<DashboardState>("/api/state");
+      // Send the fingerprint of what's on screen: an unchanged state comes back as an empty 304.
+      const res = await fetch("/api/state", { cache: "no-store", headers: etag.current ? { "if-none-match": etag.current } : undefined });
+      if (res.status === 304) {
+        setError(null);
+        return;
+      }
+      if (!res.ok) {
+        await api("/api/state"); // same handling as everywhere else (sign-in again, error message)
+        throw new Error(`HTTP ${res.status}`);
+      }
+      let next: DashboardState;
+      try {
+        next = JSON.parse(await res.text()) as DashboardState;
+      } catch {
+        throw new Error("Couldn't read the dashboard data (connection?)");
+      }
       // Only a complete answer replaces what's on screen; anything else keeps the last good state.
       if (!isDashboardState(next)) throw new Error("Incomplete dashboard data");
+      etag.current = res.headers.get("etag");
       setState(next);
       setError(null);
       // Until you pick, show real accounts — or demo when demo accounts are all you have.
@@ -51,8 +69,11 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Only while the page is on screen: a hidden tab or a phone in a pocket doesn't poll
+    // (bots keep running through the server's own every-minute job).
+    const visible = () => document.visibilityState === "visible";
     void refresh();
-    const poll = setInterval(refresh, STATE_POLL_MS);
+    const poll = setInterval(() => visible() && refresh(), STATE_POLL_MS);
 
     // While the dashboard is open it also drives the bot runner. For 24/7
     // operation point a scheduler at /api/cron/tick (see README).
@@ -66,10 +87,14 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       }
     };
     void tick();
-    const tickTimer = setInterval(tick, TICK_MS);
+    const tickTimer = setInterval(() => visible() && tick(), TICK_MS);
+    // Coming back to the page: catch up straight away.
+    const onVisible = () => visible() && refresh();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(poll);
       clearInterval(tickTimer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refresh]);
 

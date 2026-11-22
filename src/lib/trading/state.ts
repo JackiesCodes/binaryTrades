@@ -88,8 +88,8 @@ export async function getDashboardState(user: User): Promise<DashboardState> {
     signals,
     logs,
     equity: {
-      real: equity.filter((e) => e.book === "real"),
-      demo: equity.filter((e) => e.book === "demo"),
+      real: thinPoints(equity.filter((e) => e.book === "real"), EQUITY_POINTS),
+      demo: thinPoints(equity.filter((e) => e.book === "demo"), EQUITY_POINTS),
     },
     kpis: { real, demo },
     meta: {
@@ -104,4 +104,19 @@ export async function getDashboardState(user: User): Promise<DashboardState> {
     },
 
   };
+}
+
+/** Points the Overview equity chart needs; more only makes the dashboard poll heavier. */
+export const EQUITY_POINTS = 400;
+
+/**
+ * At most `max` points, evenly spread over the series, always keeping the first and the newest
+ * (the chart's start and its current value). Order is kept.
+ */
+export function thinPoints<T>(points: T[], max: number): T[] {
+  if (points.length <= max || max < 2) return points;
+  const out: T[] = [];
+  const step = (points.length - 1) / (max - 1);
+  for (let i = 0; i < max; i++) out.push(points[Math.round(i * step)]!);
+  return out;
 }
