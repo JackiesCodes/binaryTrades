@@ -511,7 +511,8 @@ function AccountBanner() {
 // Phone tab bar
 
 // Phone tabs: Home, Bots, Trades, Brokers; everything else is under More.
-const TABS = ["/dashboard", "/dashboard/bots", "/dashboard/trades", "/dashboard/brokers"];
+// Phone tab bar: the pages used most on the go. Everything else (Brokers, Risk Guard, Logs…) is under More.
+const TABS = ["/dashboard", "/dashboard/bots", "/dashboard/markets", "/dashboard/trades"];
 
 function TabBar() {
   const pathname = usePathname();
