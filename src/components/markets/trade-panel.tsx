@@ -123,7 +123,8 @@ export function TradePanel({
       ref={panel}
       role="dialog"
       aria-label="Trade"
-      className="scrollbar-thin absolute inset-x-2 bottom-2 z-40 max-h-[80%] overflow-y-auto rounded-2xl border border-[var(--mk-border)] bg-[var(--mk-panel)] p-3 shadow-glass sm:inset-x-auto sm:bottom-auto sm:right-2 sm:top-2 sm:max-h-[calc(100%-1rem)] sm:w-[340px]"
+      // Desktop only (it also stays hidden if the window is made narrow while it's open).
+      className="scrollbar-thin absolute right-2 top-2 z-40 hidden max-h-[calc(100%-1rem)] w-[340px] overflow-y-auto rounded-2xl border border-[var(--mk-border)] bg-[var(--mk-panel)] p-3 shadow-glass lg:block"
     >
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-[var(--mk-text)]">Trade {marketName}</h2>

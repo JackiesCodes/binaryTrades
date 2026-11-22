@@ -586,7 +586,8 @@ export function MarketsView() {
             aria-expanded={tradeOpen}
             title="Place a trade through one of your bots on this market"
             className={cn(
-              "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold",
+              // Desktop only: trading from the chart isn't offered on phones and small tablets.
+              "hidden h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold lg:inline-flex",
               tradeOpen ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
             )}
           >
