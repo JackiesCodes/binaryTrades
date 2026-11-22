@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Bell, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Bell, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -14,6 +14,8 @@ import { AlertsPanel } from "@/components/markets/alerts-panel";
 import { useMarketsState, type SyncStatus } from "@/components/markets/use-markets-state";
 import { activeAlerts, alertHit, type PriceAlert } from "@/lib/markets/alerts";
 import { MAX_WATCHLIST } from "@/lib/markets/state";
+import { tradesForMarket } from "@/lib/markets/trade-marks";
+import type { Trade } from "@/lib/trading/types";
 import { DRAW_TOOLS, MAX_DRAWINGS_PER_SYMBOL, type DrawTool, type Drawing } from "@/lib/markets/drawings";
 import { TIMEFRAMES, changePercent, formatPrice, isTimeframe, priceDecimals, timeframe, type TimeframeId } from "@/lib/markets/bars";
 import { indicatorLabel, type IndicatorConfig } from "@/lib/markets/indicators";
@@ -31,10 +33,12 @@ interface Prefs {
   chartType: ChartType;
   /** Desktop: the watchlist panel is open. */
   watchOpen: boolean;
+  /** Show the user's trades on the chart. */
+  showTrades: boolean;
 }
 
 function readPrefs(): Prefs {
-  const prefs: Prefs = { symbol: DEFAULT_SYMBOL, tf: "1h", theme: "dark", chartType: "candles", watchOpen: true };
+  const prefs: Prefs = { symbol: DEFAULT_SYMBOL, tf: "1h", theme: "dark", chartType: "candles", watchOpen: true, showTrades: true };
   try {
     Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}"));
   } catch {
@@ -47,6 +51,7 @@ function readPrefs(): Prefs {
   if (prefs.theme !== "light") prefs.theme = "dark";
   if (!CHART_TYPES.some((t) => t.id === prefs.chartType)) prefs.chartType = "candles";
   prefs.watchOpen = prefs.watchOpen !== false;
+  prefs.showTrades = prefs.showTrades !== false;
   return prefs;
 }
 
@@ -92,7 +97,7 @@ export function MarketsView() {
   const [retry, setRetry] = useState(0);
   // Watchlist, indicators, drawings and alerts: saved to the account (and this browser).
   const { doc, status: sync, update, refusal, clearRefusal } = useMarketsState();
-  const { state } = useDashboard();
+  const { state, view } = useDashboard();
   const indicators = doc?.indicators ?? NO_INDICATORS;
   const watchlist = doc?.watchlist ?? NO_IDS;
   const alerts = doc?.alerts ?? NO_ALERTS;
@@ -147,6 +152,11 @@ export function MarketsView() {
   // --- price alerts: checked against live prices while this page is open ---
   const nameOf = useCallback((id: string) => catalog.find((c) => c.id === id)?.name ?? parseSymbolId(id)?.code ?? id, [catalog]);
   const waiting = useMemo(() => activeAlerts(alerts), [alerts]);
+  // Your trades on this market (for the account type picked in the top bar), drawn on the chart.
+  const marketTrades = useMemo(
+    () => (state && meta?.provider === "deriv" ? tradesForMarket([...state.open_trades, ...state.closed_trades], meta.code, view) : NO_TRADES),
+    [state, meta, view],
+  );
   // Bots an alert on this market may trade with: demo accounts, same Deriv market.
   const alertBots = useMemo(() => {
     if (!state || meta?.provider !== "deriv") return [];
@@ -528,6 +538,22 @@ export function MarketsView() {
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{waiting.length}</span>
           )}
         </button>
+        {marketTrades.length > 0 && (
+          <button
+            type="button"
+            onClick={() => set({ showTrades: !prefs?.showTrades })}
+            aria-pressed={Boolean(prefs?.showTrades)}
+            title={`Your ${view} trades on this market: arrows where they opened, results where they closed, lines for open ones`}
+            className={cn(
+              "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold",
+              prefs?.showTrades ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+            )}
+          >
+            <ArrowUpDown className="h-4 w-4" aria-hidden />
+            Trades
+            <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{marketTrades.length}</span>
+          </button>
+        )}
         {indicators.map((c) => (
           <span key={c.id} className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--mk-border)] text-xs text-[var(--mk-text)]">
             <button
@@ -569,6 +595,7 @@ export function MarketsView() {
               tool={tool}
               onToolDone={() => setTool(null)}
               alertLines={waiting.filter((a) => a.symbol === symbolId)}
+            trades={prefs?.showTrades ? marketTrades : NO_TRADES}
               className="h-full"
             />
           )}
@@ -810,3 +837,5 @@ function SyncNote({ status }: { status: SyncStatus }) {
     </span>
   );
 }
+
+const NO_TRADES: Trade[] = [];

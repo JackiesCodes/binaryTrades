@@ -23,6 +23,8 @@ import { formatPrice, formatVolume, type Bar } from "@/lib/markets/bars";
 import { logicalToTime, timeToLogical, type DrawTool, type Drawing } from "@/lib/markets/drawings";
 import { computeIndicator, heikinAshi, heikinAshiNext, indicatorLabel, isPane, type IndicatorConfig } from "@/lib/markets/indicators";
 import type { Palette } from "@/lib/markets/theme";
+import { tradeLines, tradeMarks } from "@/lib/markets/trade-marks";
+import type { Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
 export type ChartType = "candles" | "line" | "area" | "heikin";
@@ -57,6 +59,8 @@ interface Props {
   onToolDone: () => void;
   /** Waiting price alerts on this market, drawn as dashed lines. */
   alertLines?: Array<{ id: string; price: number; op: "above" | "below" }>;
+  /** The user's trades on this market: arrows where they opened, results where they closed, lines for open ones. */
+  trades?: Trade[];
   className?: string;
 }
 
@@ -75,6 +79,7 @@ interface Pane {
 }
 
 const ts = (t: number) => t as UTCTimestamp;
+const NO_TRADES: Trade[] = [];
 const VISIBLE = 140;
 const SCALE_WIDTH = 78;
 const SIGNAL_COLOR = "#E08A3C";
@@ -105,7 +110,7 @@ const seriesKey = (c: IndicatorConfig) => c.type;
  * and RSI / MACD panes underneath that zoom, scroll and follow the crosshair together.
  */
 export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart(
-  { palette, decimals, hasVolume, title, chartType, indicators, timeframe, drawings, onDrawingsChange, tool, onToolDone, alertLines = [], className },
+  { palette, decimals, hasVolume, title, chartType, indicators, timeframe, drawings, onDrawingsChange, tool, onToolDone, alertLines = [], trades = NO_TRADES, className },
   ref,
 ) {
   const box = useRef<HTMLDivElement>(null);
@@ -460,6 +465,52 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
   }, [decimals, hasVolume]);
 
   // Price alert lines on whichever series is showing.
+  // The user's trades: markers on the price series, and entry / stop / target lines for open ones.
+  const tradesRef = useRef(trades);
+  tradesRef.current = trades;
+  const tradePriceLines = useRef<Array<{ series: AnySeries; line: IPriceLine }>>([]);
+  const applyTrades = () => {
+    for (const { series, line } of tradePriceLines.current) {
+      try {
+        series.removePriceLine(line);
+      } catch {
+        // series already gone
+      }
+    }
+    tradePriceLines.current = [];
+    for (const s of [candleS.current, lineS.current, areaS.current]) s?.setMarkers([]);
+    const t = typeRef.current;
+    const series = (t === "line" ? lineS.current : t === "area" ? areaS.current : candleS.current) as AnySeries | null;
+    if (!series || !bars.current.length || !tradesRef.current.length) return;
+    const p = pal.current;
+    const marks = tradeMarks(tradesRef.current, tfRef.current, new Set(bars.current.map((b) => b.time)));
+    series.setMarkers(
+      marks.map((m) => ({
+        time: ts(m.time),
+        position: (m.kind === "open") === (m.side === "buy") ? ("belowBar" as const) : ("aboveBar" as const),
+        color: m.kind === "open" ? (m.side === "buy" ? p.up : p.down) : m.won ? p.up : p.down,
+        shape: m.kind === "open" ? (m.side === "buy" ? ("arrowUp" as const) : ("arrowDown" as const)) : ("circle" as const),
+        text: m.text,
+      })),
+    );
+    for (const l of tradeLines(tradesRef.current)) {
+      const line = series.createPriceLine({
+        price: l.price,
+        color: l.kind === "entry" ? p.text : l.kind === "stop" ? p.down : p.up,
+        lineWidth: 1,
+        lineStyle: l.kind === "entry" ? LineStyle.Solid : LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: l.title,
+      });
+      tradePriceLines.current.push({ series, line });
+    }
+  };
+  const tradesKey = trades.map((t) => `${t.id}:${t.status}:${t.pnl.toFixed(2)}:${t.sl}:${t.tp}:${t.entry_price}`).join("|");
+  useEffect(() => {
+    applyTrades();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradesKey, chartType, palette, timeframe]);
+
   const alertPriceLines = useRef<Array<{ series: AnySeries; line: IPriceLine }>>([]);
   const alertKey = alertLines.map((a) => `${a.id}:${a.price}:${a.op}`).join("|");
   useEffect(() => {
@@ -540,6 +591,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
         const n = bars.current.length;
         if (n) chart.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - VISIBLE), to: n + 4 });
         setHover(null);
+        applyTrades();
         refreshLegend();
       },
       update(bar: Bar) {
