@@ -63,15 +63,16 @@ export interface DerivActiveSymbol {
 }
 
 export function fromDeriv(list: DerivActiveSymbol[]): MarketSymbol[] {
-  return list
-    .filter((s) => !s.is_trading_suspended)
+  // Live data: skip entries without a usable code, and never let a missing name or market break search.
+  return (Array.isArray(list) ? list : [])
+    .filter((s) => s && typeof s.underlying_symbol === "string" && /^[A-Za-z0-9_]{2,30}$/.test(s.underlying_symbol) && !s.is_trading_suspended)
     .map((s) => ({
       id: symbolId("deriv", s.underlying_symbol),
       provider: "deriv" as const,
       code: s.underlying_symbol,
-      name: s.underlying_symbol_name,
-      group: DERIV_GROUPS[s.market] ?? s.market,
-      pipSize: s.pip_size,
+      name: typeof s.underlying_symbol_name === "string" && s.underlying_symbol_name ? s.underlying_symbol_name : s.underlying_symbol,
+      group: DERIV_GROUPS[s.market] ?? (typeof s.market === "string" ? s.market : "Deriv"),
+      pipSize: typeof s.pip_size === "number" && s.pip_size > 0 ? s.pip_size : undefined,
       hasVolume: false,
     }));
 }
@@ -103,7 +104,7 @@ export function mergeCatalog(...lists: MarketSymbol[][]): MarketSymbol[] {
   return [...seen.values()];
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+const norm = (s: string | undefined | null) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /**
  * Best matches for a search: exact code or name first, then prefixes, then words that start
@@ -115,10 +116,12 @@ export function searchSymbols(catalog: MarketSymbol[], query: string, limit = 12
   const starters = new Set(STARTER_SYMBOLS.map((s) => s.id));
   const scored: Array<{ s: MarketSymbol; score: number; i: number }> = [];
   catalog.forEach((s, i) => {
-    const code = norm(s.code.replace(/^(frx|cry)/, ""));
-    const fullCode = norm(s.code);
-    const name = norm(s.name);
-    const words = s.name
+    const rawCode = String(s.code ?? "");
+    const rawName = String(s.name ?? rawCode);
+    const code = norm(rawCode.replace(/^(frx|cry)/, ""));
+    const fullCode = norm(rawCode);
+    const name = norm(rawName);
+    const words = rawName
       .toLowerCase()
       .split(/[^a-z0-9]+/)
       .filter(Boolean);
@@ -130,7 +133,7 @@ export function searchSymbols(catalog: MarketSymbol[], query: string, limit = 12
     if (!score) return;
     if (starters.has(s.id)) score += 5;
     // Prefer shorter names for equal matches ("BTC/USDT" before "BTCDOM/USDT").
-    scored.push({ s, score: score - s.name.length / 100, i });
+    scored.push({ s, score: score - rawName.length / 100, i });
   });
   return scored
     .sort((a, b) => b.score - a.score || a.i - b.i)

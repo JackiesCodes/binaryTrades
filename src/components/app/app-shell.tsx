@@ -29,6 +29,7 @@ import { DashboardProvider, useDashboard } from "@/components/app/dashboard-cont
 import { FeedbackProvider, useFeedback } from "@/components/app/feedback";
 import { useKillSwitch } from "@/components/app/kill-switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { reportClientError } from "@/lib/client-errors";
 import { api, money, timeAgo } from "@/lib/client";
 import { timeframeLabel } from "@/lib/trading/symbols";
 import { cn } from "@/lib/utils";
@@ -71,7 +72,22 @@ function isActive(pathname: string, href: string) {
   return href === "/dashboard" ? pathname === href : pathname.startsWith(href);
 }
 
+/** Script errors outside React rendering (event handlers, timers, promises) go to the server log too. */
+function useErrorReports() {
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => reportClientError(e.error ?? e.message, "window");
+    const onRejection = (e: PromiseRejectionEvent) => reportClientError(e.reason, "promise");
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, []);
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
+  useErrorReports();
   return (
     <FeedbackProvider>
       <DashboardProvider>

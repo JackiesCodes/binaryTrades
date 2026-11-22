@@ -281,7 +281,7 @@ class DerivFeed implements Feed {
   }
 
   catalog(): Promise<MarketSymbol[]> {
-    return cached("bt.markets.deriv.v1", CATALOG_TTL, async () => {
+    return cached("bt.markets.deriv.v2", CATALOG_TTL, async () => {
       const j = await this.request({ active_symbols: "brief" });
       return fromDeriv((j.active_symbols as DerivActiveSymbol[] | undefined) ?? []);
     });
@@ -411,7 +411,7 @@ class BinanceFeed implements Feed {
   }
 
   catalog(): Promise<MarketSymbol[]> {
-    return cached("bt.markets.binance.v1", CATALOG_TTL, async () => fromBinance(await this.get<Array<{ symbol: string }>>("/api/v3/ticker/price")));
+    return cached("bt.markets.binance.v2", CATALOG_TTL, async () => fromBinance(await this.get<Array<{ symbol: string }>>("/api/v3/ticker/price")));
   }
 }
 

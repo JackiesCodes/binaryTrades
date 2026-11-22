@@ -200,3 +200,23 @@ describe("reconnecting socket timers", () => {
     }
   });
 });
+
+describe("market list from live data", () => {
+  it("skips broken Deriv entries and never lets a missing name break search", () => {
+    const list = fromDeriv([
+      { underlying_symbol: "R_100", underlying_symbol_name: "Volatility 100 Index", market: "synthetic_index", pip_size: 0.01 },
+      { underlying_symbol: "JD25", market: "synthetic_index" } as never, // no name
+      { underlying_symbol_name: "No code" } as never,
+      null as never,
+      { underlying_symbol: "bad code!", underlying_symbol_name: "x", market: "forex" },
+    ]);
+    expect(list.map((s) => [s.code, s.name])).toEqual([
+      ["R_100", "Volatility 100 Index"],
+      ["JD25", "JD25"],
+    ]);
+    expect(fromDeriv(undefined as never)).toEqual([]);
+    const withHoles = [...list, { id: "deriv:X1", provider: "deriv", code: "X1", group: "Deriv", hasVolume: false } as never];
+    expect(searchSymbols(withHoles, "x1")[0]!.code).toBe("X1");
+    expect(() => searchSymbols(withHoles, "vol")).not.toThrow();
+  });
+});
