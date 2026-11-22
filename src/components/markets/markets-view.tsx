@@ -410,7 +410,7 @@ export function MarketsView() {
         <div
           role="radiogroup"
           aria-label="Timeframe"
-          className="scrollbar-none order-4 -mx-1 flex w-full gap-1 overflow-x-auto px-1 sm:order-none sm:mx-0 sm:w-auto sm:px-0"
+          className="scrollbar-none hidden gap-1 overflow-x-auto sm:flex"
         >
           {TIMEFRAMES.map((t, i) => {
             const on = prefs?.tf === t.id;
@@ -437,7 +437,36 @@ export function MarketsView() {
 
       {/* Toolbar: chart type and indicators */}
       <div className="scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5">
-        <div role="radiogroup" aria-label="Chart type" className="flex shrink-0 rounded-lg border border-[var(--mk-border)] p-0.5">
+        {/* Phones: timeframe and chart style as compact dropdowns, on this one row. */}
+        <label className="shrink-0 sm:hidden">
+          <span className="sr-only">Timeframe</span>
+          <select
+            value={prefs?.tf ?? "1h"}
+            onChange={(e) => set({ tf: e.target.value as TimeframeId })}
+            className={mobileSelect}
+          >
+            {TIMEFRAMES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="shrink-0 sm:hidden">
+          <span className="sr-only">Chart type</span>
+          <select
+            value={prefs?.chartType ?? "candles"}
+            onChange={(e) => set({ chartType: e.target.value as ChartType })}
+            className={mobileSelect}
+          >
+            {CHART_TYPES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div role="radiogroup" aria-label="Chart type" className="hidden shrink-0 rounded-lg border border-[var(--mk-border)] p-0.5 sm:flex">
           {CHART_TYPES.map((t) => {
             const on = prefs?.chartType === t.id;
             return (
@@ -839,3 +868,6 @@ function SyncNote({ status }: { status: SyncStatus }) {
 }
 
 const NO_TRADES: Trade[] = [];
+
+const mobileSelect =
+  "h-9 rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] pl-2.5 pr-7 text-xs font-semibold text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
