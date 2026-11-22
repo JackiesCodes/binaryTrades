@@ -16,9 +16,11 @@ let price = 1.1;
 let derivEquity: Record<string, number> = {};
 let contracts: Array<{ id: string; stake: number; side: "buy" | "sell"; sold: boolean }> = [];
 
+// Candles start on whole multiples of their length, like a real feed: the newest closed candle only
+// changes when a new candle period begins, not every second (which made two ticks in a row flaky).
 deps.candles = async (_symbol, granularity, count) =>
   Array.from({ length: count }, (_, i) => ({
-    epoch: Math.floor(Date.now() / 1000) - (count - i) * granularity,
+    epoch: Math.floor(Date.now() / 1000 / granularity) * granularity - (count - i) * granularity,
     open: price,
     high: price,
     low: price,
