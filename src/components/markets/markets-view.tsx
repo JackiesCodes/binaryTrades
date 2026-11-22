@@ -444,6 +444,7 @@ export function MarketsView() {
             value={prefs?.tf ?? "1h"}
             onChange={(e) => set({ tf: e.target.value as TimeframeId })}
             className={mobileSelect}
+            style={CHEVRON}
           >
             {TIMEFRAMES.map((t) => (
               <option key={t.id} value={t.id}>
@@ -458,10 +459,11 @@ export function MarketsView() {
             value={prefs?.chartType ?? "candles"}
             onChange={(e) => set({ chartType: e.target.value as ChartType })}
             className={mobileSelect}
+            style={CHEVRON}
           >
             {CHART_TYPES.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.label}
+                {t.short}
               </option>
             ))}
           </select>
@@ -869,5 +871,12 @@ function SyncNote({ status }: { status: SyncStatus }) {
 
 const NO_TRADES: Trade[] = [];
 
+// Compact dropdowns for phones: no browser arrow (it adds a lot of padding), a small one of our own.
 const mobileSelect =
-  "h-9 rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] pl-2.5 pr-7 text-xs font-semibold text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
+  "h-9 appearance-none rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] bg-no-repeat py-0 pl-2 pr-5 text-xs font-semibold text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
+const CHEVRON: React.CSSProperties = {
+  backgroundImage:
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%239AA69F' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")",
+  backgroundPosition: "right 0.4rem center",
+  backgroundSize: "10px",
+};
