@@ -41,6 +41,8 @@ export interface PriceChartHandle {
   setBars(bars: Bar[]): void;
   /** A live candle: updates the newest candle or appends one. Drawn on the next animation frame. */
   update(bar: Bar): void;
+  /** The candles on the chart (a copy). */
+  bars(): Bar[];
 }
 
 interface Props {
@@ -597,6 +599,9 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       update(bar: Bar) {
         pending.current.set(bar.time, bar);
         if (frame.current === null) frame.current = requestAnimationFrame(flush);
+      },
+      bars() {
+        return bars.current.map((b) => ({ ...b }));
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowUpDown, Bell, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Bell, Zap, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -11,6 +11,7 @@ import { CHART_TYPES, PriceChart, type ChartType, type PriceChartHandle } from "
 import { SymbolSearch, type SymbolSearchHandle } from "@/components/markets/symbol-search";
 import { Watchlist } from "@/components/markets/watchlist";
 import { AlertsPanel } from "@/components/markets/alerts-panel";
+import { TradePanel, type TradeBot } from "@/components/markets/trade-panel";
 import { useMarketsState, type SyncStatus } from "@/components/markets/use-markets-state";
 import { activeAlerts, alertHit, type PriceAlert } from "@/lib/markets/alerts";
 import { MAX_WATCHLIST } from "@/lib/markets/state";
@@ -106,6 +107,7 @@ export function MarketsView() {
   const changeAlerts = useCallback((next: PriceAlert[] | ((prev: PriceAlert[]) => PriceAlert[])) => update("alerts", next), [update]);
   const [panel, setPanel] = useState<{ edit: string | null } | null>(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [tradeOpen, setTradeOpen] = useState(false);
   const { confirm, toast } = useFeedback();
   const [tool, setTool] = useState<DrawTool | null>(null);
   const [sheet, setSheet] = useState(false);
@@ -157,6 +159,19 @@ export function MarketsView() {
     () => (state && meta?.provider === "deriv" ? tradesForMarket([...state.open_trades, ...state.closed_trades], meta.code, view) : NO_TRADES),
     [state, meta, view],
   );
+  // Bots that trade this market (any account): the Trade panel places orders through them.
+  const tradeBots = useMemo<TradeBot[]>(() => {
+    if (!state || meta?.provider !== "deriv") return [];
+    return state.bots.flatMap((b) => {
+      const broker = state.brokers.find((x) => x.id === b.broker_account_id);
+      return b.data_symbol === meta.code && broker ? [{ bot: b, accountLabel: broker.label, isDemo: broker.is_demo, currency: broker.currency }] : [];
+    });
+  }, [state, meta]);
+  useEffect(() => setTradeOpen(false), [symbolId]);
+  // One panel at a time: opening Indicators or Alerts closes the Trade panel.
+  useEffect(() => {
+    if (panel || alertsOpen) setTradeOpen(false);
+  }, [panel, alertsOpen]);
   // Bots an alert on this market may trade with: demo accounts, same Deriv market.
   const alertBots = useMemo(() => {
     if (!state || meta?.provider !== "deriv") return [];
@@ -407,11 +422,7 @@ export function MarketsView() {
           </button>
         </div>
 
-        <div
-          role="radiogroup"
-          aria-label="Timeframe"
-          className="scrollbar-none hidden gap-1 overflow-x-auto sm:flex"
-        >
+        <div role="radiogroup" aria-label="Timeframe" className="scrollbar-none hidden gap-1 overflow-x-auto sm:flex">
           {TIMEFRAMES.map((t, i) => {
             const on = prefs?.tf === t.id;
             return (
@@ -440,12 +451,7 @@ export function MarketsView() {
         {/* Phones: timeframe and chart style as compact dropdowns, on this one row. */}
         <label className="shrink-0 sm:hidden">
           <span className="sr-only">Timeframe</span>
-          <select
-            value={prefs?.tf ?? "1h"}
-            onChange={(e) => set({ tf: e.target.value as TimeframeId })}
-            className={mobileSelect}
-            style={CHEVRON}
-          >
+          <select value={prefs?.tf ?? "1h"} onChange={(e) => set({ tf: e.target.value as TimeframeId })} className={mobileSelect} style={CHEVRON}>
             {TIMEFRAMES.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.label}
@@ -569,6 +575,25 @@ export function MarketsView() {
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{waiting.length}</span>
           )}
         </button>
+        {tradeBots.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setPanel(null);
+              setAlertsOpen(false);
+              setTradeOpen((v) => !v);
+            }}
+            aria-expanded={tradeOpen}
+            title="Place a trade through one of your bots on this market"
+            className={cn(
+              "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold",
+              tradeOpen ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+            )}
+          >
+            <Zap className="h-4 w-4" aria-hidden />
+            Trade
+          </button>
+        )}
         {marketTrades.length > 0 && (
           <button
             type="button"
@@ -577,7 +602,9 @@ export function MarketsView() {
             title={`Your ${view} trades on this market: arrows where they opened, results where they closed, lines for open ones`}
             className={cn(
               "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold",
-              prefs?.showTrades ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+              prefs?.showTrades
+                ? "border-[var(--mk-accent)] text-[var(--mk-text)]"
+                : "border-[var(--mk-border)] text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
             )}
           >
             <ArrowUpDown className="h-4 w-4" aria-hidden />
@@ -626,11 +653,21 @@ export function MarketsView() {
               tool={tool}
               onToolDone={() => setTool(null)}
               alertLines={waiting.filter((a) => a.symbol === symbolId)}
-            trades={prefs?.showTrades ? marketTrades : NO_TRADES}
+              trades={prefs?.showTrades ? marketTrades : NO_TRADES}
               className="h-full"
             />
           )}
           {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
+          {tradeOpen && meta && (
+            <TradePanel
+              bots={tradeBots}
+              marketName={meta.name}
+              price={price}
+              decimals={decimals}
+              getBars={() => chart.current?.bars() ?? []}
+              onClose={() => setTradeOpen(false)}
+            />
+          )}
           {alertsOpen && (
             <AlertsPanel
               alerts={alerts}
