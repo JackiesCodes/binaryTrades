@@ -53,6 +53,9 @@ describe("dashboard state polling", () => {
     expect(changed.status).toBe(200);
     expect(changed.headers.get("etag")).not.toBe(etag);
     expect((await get("\"stale\"")).status).toBe(200);
+    // A compressing proxy may turn the fingerprint into a weak one: still recognised.
+    const now = (await get()).headers.get("etag")!;
+    expect((await get(`W/${now}`)).status).toBe(304);
     expect(getStore().backend).toBe("file");
   });
 });

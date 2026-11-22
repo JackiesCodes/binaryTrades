@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { jsonError } from "@/lib/http";
-import { runEngineTick } from "@/lib/trading/engine";
+import { runEngineTick, runPriceAlerts } from "@/lib/trading/engine";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,6 +17,7 @@ async function handle(request: Request) {
   const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? url.searchParams.get("key");
   if (!secret || provided !== secret) return jsonError(401, "INVALID_CRON_SECRET");
   const report = await runEngineTick();
+  report.alerts = await runPriceAlerts();
   // One line per tick in the server log: each running bot and the engine's verdict on it.
   const entries = Object.entries(report.bots);
   const alerts = report.alerts ? ` · price alerts: ${report.alerts.waiting} waiting, ${report.alerts.fired} fired` : "";

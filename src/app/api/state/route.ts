@@ -18,6 +18,8 @@ export const GET = withUser(async (user, request) => {
     .update(JSON.stringify({ ...state, meta: { ...state.meta, generated_at: null } }))
     .digest("base64url")}"`;
   const headers = { ETag: etag, "Cache-Control": "private, no-cache" };
-  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  // Compressing proxies may hand the fingerprint back as W/"…": compare without that prefix.
+  const sent = (request.headers.get("if-none-match") ?? "").split(",").map((t) => t.trim().replace(/^W\//, ""));
+  if (sent.includes(etag)) return new Response(null, { status: 304, headers });
   return NextResponse.json(state, { headers });
 });

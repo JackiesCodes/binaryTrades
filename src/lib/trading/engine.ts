@@ -758,13 +758,25 @@ async function doTick(): Promise<TickReport> {
       await log("error", `Engine error: ${(error as Error).message}`, { user_id: userId });
     }
   }
-  // Markets price alerts, so they fire with the site closed. Never lets a feed problem stop the tick.
-  try {
-    report.alerts = await deps.checkPriceAlerts();
-  } catch (error) {
-    console.error("[alerts] check failed", error);
-  }
   return report;
+}
+
+let alertsInFlight: Promise<TickReport["alerts"]> | null = null;
+
+/**
+ * Markets price alerts (they fire with the site closed). Run only by the scheduler (/api/cron/tick),
+ * never by open dashboards: two checks at once on different servers could both fire the same alert
+ * (two emails, or two trades for an alert that trades). Never throws.
+ */
+export function runPriceAlerts(): Promise<TickReport["alerts"]> {
+  alertsInFlight ??= deps
+    .checkPriceAlerts()
+    .catch((error) => {
+      console.error("[alerts] check failed", error);
+      return undefined;
+    })
+    .finally(() => (alertsInFlight = null));
+  return alertsInFlight;
 }
 
 /** One user's share of the engine tick. Bot names in the report are prefixed with the user id. */

@@ -12,7 +12,7 @@ import { PUT } from "@/app/api/markets/state/route";
 import { createSessionToken } from "@/lib/auth/session";
 import { createUser, updateUser } from "@/lib/auth/users";
 import { checkPriceAlerts } from "@/lib/markets/server-alerts";
-import { deps, runEngineTick } from "@/lib/trading/engine";
+import { deps, runEngineTick, runPriceAlerts } from "@/lib/trading/engine";
 import { getStore, nowIso, resetStore } from "@/lib/trading/store";
 
 const T0 = Date.UTC(2026, 10, 21, 12, 0, 30); // alerts set at 12:00:30
@@ -160,16 +160,32 @@ describe("server price alerts (every minute)", () => {
     expect(saved).toHaveLength(2);
   });
 
-  it("runs as part of the engine tick", async () => {
+  it("run from the scheduler only, one check at a time, never from dashboard ticks", async () => {
     const original = deps.checkPriceAlerts;
-    deps.checkPriceAlerts = async () => ({ waiting: 3, fired: 1 });
+    let calls = 0;
+    let release!: () => void;
+    deps.checkPriceAlerts = () =>
+      new Promise((resolve) => {
+        calls++;
+        release = () => resolve({ waiting: 3, fired: 1 });
+      });
     try {
-      expect((await runEngineTick()).alerts).toEqual({ waiting: 3, fired: 1 });
+      // The engine tick (also started by open dashboards) doesn't check alerts.
+      expect((await runEngineTick()).alerts).toBeUndefined();
+      expect(calls).toBe(0);
+      // Two overlapping checks share one run.
+      const a = runPriceAlerts();
+      const b = runPriceAlerts();
+      expect(calls).toBe(1);
+      release();
+      expect(await a).toEqual({ waiting: 3, fired: 1 });
+      expect(await b).toEqual({ waiting: 3, fired: 1 });
+      // A feed problem is logged, not thrown.
       deps.checkPriceAlerts = async () => {
         throw new Error("feed down");
       };
       const err = vi.spyOn(console, "error").mockImplementation(() => {});
-      expect((await runEngineTick()).alerts).toBeUndefined(); // a feed problem never stops the tick
+      expect(await runPriceAlerts()).toBeUndefined();
       err.mockRestore();
     } finally {
       deps.checkPriceAlerts = original;
