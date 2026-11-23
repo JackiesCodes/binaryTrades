@@ -42,6 +42,12 @@ describe("candles", () => {
   it("measures the 24h change from the open 24 hours back", () => {
     const hours = Array.from({ length: 30 }, (_, i) => bar(i * 3600, 100 + i, 0, 0, 101 + i));
     expect(reference24h(hours)).toBe(100 + 5);
+    // Across a weekend: Friday's last hour closed at 50; trading resumed Sunday night at 60.
+    const fri = Date.UTC(2026, 10, 20, 20) / 1000;
+    const sun = Date.UTC(2026, 10, 22, 23) / 1000;
+    const gap = [bar(fri - 3600, 49, 0, 0, 49.5), bar(fri, 49.5, 0, 0, 50), ...Array.from({ length: 10 }, (_, i) => bar(sun + i * 3600, 60 + i, 0, 0, 61 + i))];
+    expect(reference24h(gap)).toBe(50); // not Sunday's 60
+    expect(reference24h(hours.slice(10))).toBe(110); // history shorter than a day: its first open
     expect(changePercent(110, 100)).toBeCloseTo(10);
     expect(changePercent(110, 0)).toBeNull();
     expect(changePercent(null, 100)).toBeNull();

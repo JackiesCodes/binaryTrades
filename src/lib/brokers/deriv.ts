@@ -1,6 +1,7 @@
 import "server-only";
 
 import WebSocket from "ws";
+import { pageByTime } from "@/lib/candle-pages";
 
 /**
  * Deriv API client for Deriv's current platform (https://developers.deriv.com).
@@ -375,30 +376,12 @@ export async function derivCandles(symbol: string, granularity: number, count: n
   );
 }
 
-/** At most this many requests for one history (a long closed spell can't make it loop for ever). */
-const MAX_CANDLE_PAGES = 12;
-
 /**
- * Collects `wanted` candles, newest last, asking for older pages as needed. Deriv's `count` covers
- * time, not candles: hours the market was closed (weekends for gold and forex) come back empty,
- * so a page is often shorter than asked for. Only an empty page, or one with nothing older,
- * means the history has run out.
+ * Collects `wanted` candles, newest last, asking for older pages past closed spells (weekends for
+ * gold and forex). At most 12 requests.
  */
-export async function pageCandles(
-  wanted: number,
-  fetchPage: (end: number | "latest", count: number) => Promise<Candle[]>,
-): Promise<Candle[]> {
-  let candles: Candle[] = [];
-  let end: number | "latest" = "latest";
-  for (let pages = 0; candles.length < wanted && pages < MAX_CANDLE_PAGES; pages++) {
-    const requested = Math.min(CANDLES_PER_REQUEST, Math.max(wanted - candles.length, 100));
-    const page = await fetchPage(end, requested);
-    const older = page.filter((c) => !candles.length || c.epoch < candles[0]!.epoch);
-    if (!older.length) break; // no more history
-    candles = [...older, ...candles];
-    end = older[0]!.epoch - 1;
-  }
-  return candles.slice(-wanted);
+export function pageCandles(wanted: number, fetchPage: (end: number | "latest", count: number) => Promise<Candle[]>): Promise<Candle[]> {
+  return pageByTime(wanted, fetchPage, (c) => c.epoch);
 }
 
 /** Deriv now and then answers "internal server error" or times out; one quick retry covers it. */

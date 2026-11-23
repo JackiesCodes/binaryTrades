@@ -107,8 +107,11 @@ export function changePercent(price: number | null | undefined, reference: numbe
 /** The price 24 hours before the newest candle, from hourly (or finer) candles. */
 export function reference24h(bars: Bar[], now = bars[bars.length - 1]?.time ?? 0): number | null {
   const since = now - 86400;
-  const first = bars.find((b) => b.time >= since);
-  return first ? first.open : null;
+  const at = bars.findIndex((b) => b.time >= since);
+  if (at < 0) return null;
+  // The price 24 hours ago: the close just before then (Friday's close across a weekend gap),
+  // or the first open when the history starts later.
+  return at > 0 ? bars[at - 1]!.close : bars[at]!.open;
 }
 
 /** Reconnect delay: 1s, 2s, 4s … up to 30s, with ±20% jitter so many tabs don't reconnect together. */

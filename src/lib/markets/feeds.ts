@@ -7,6 +7,7 @@
 
 import { aggregate, changePercent, foldLive, reference24h, timeframe, type Bar, type TimeframeId } from "@/lib/markets/bars";
 import { ReconnectingSocket, type SocketStatus } from "@/lib/markets/socket";
+import { pageByTime } from "@/lib/candle-pages";
 import { STARTER_SYMBOLS, fromBinance, fromDeriv, mergeCatalog, parseSymbolId, type DerivActiveSymbol, type MarketSymbol } from "@/lib/markets/symbols";
 
 export type FeedStatus = SocketStatus | "market-closed";
@@ -220,8 +221,17 @@ class DerivFeed implements Feed {
   async history(code: string, tf: TimeframeId): Promise<Bar[]> {
     const t = timeframe(tf)!;
     const granularity = tf === "1W" ? 86400 : t.seconds;
-    const j = await this.request({ ticks_history: code, style: "candles", granularity, count: 1000, end: "latest" });
-    const bars = ((j.candles as Json[] | undefined) ?? []).map(toBar);
+    // Closed hours come back empty, so after a weekend one request can return far fewer candles than
+    // asked for: page back (up to 4 requests) until the chart has its 1000.
+    const bars = await pageByTime(
+      1000,
+      async (end, count) => {
+        const j = await this.request({ ticks_history: code, style: "candles", granularity, count, end });
+        return ((j.candles as Json[] | undefined) ?? []).map(toBar);
+      },
+      (b) => b.time,
+      { maxPages: 4 },
+    );
     return aggregate(bars, t.seconds);
   }
 
@@ -254,7 +264,8 @@ class DerivFeed implements Feed {
 
   /** Last price and the price 24 hours earlier, from hourly candles (works while the market is closed). */
   async lastDay(code: string): Promise<{ reference: number | null; last: number | null }> {
-    const j = await this.request({ ticks_history: code, style: "candles", granularity: 3600, count: 25, end: "latest" });
+    // 4 days of hours: on a Monday, "24 hours ago" can be Friday's close, before the weekend gap.
+    const j = await this.request({ ticks_history: code, style: "candles", granularity: 3600, count: 96, end: "latest" });
     const bars = ((j.candles as Json[] | undefined) ?? []).map(toBar);
     return { reference: reference24h(bars), last: bars.at(-1)?.close ?? null };
   }
