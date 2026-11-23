@@ -12,7 +12,8 @@ import type { Bot } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
 const field =
-  "h-10 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-sm text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
+  // 16px text on phones so the browser doesn't zoom in when a field is tapped.
+  "h-11 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-base text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)] lg:h-10 lg:text-sm";
 
 export interface TradeBot {
   bot: Bot;
@@ -119,126 +120,132 @@ export function TradePanel({
   };
 
   return (
-    <div
-      ref={panel}
-      role="dialog"
-      aria-label="Trade"
-      // Desktop only (it also stays hidden if the window is made narrow while it's open).
-      className="scrollbar-thin absolute right-2 top-2 z-40 hidden max-h-[calc(100%-1rem)] w-[340px] overflow-y-auto rounded-2xl border border-[var(--mk-border)] bg-[var(--mk-panel)] p-3 shadow-glass lg:block"
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--mk-text)]">Trade {marketName}</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)]"
-          aria-label="Close trade panel"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="grid gap-2.5">
-        <label className="grid gap-1">
-          <span className="text-[11px] font-medium text-[var(--mk-muted)]">Bot (its account and risk are used)</span>
-          <select className={field} value={chosen?.bot.id ?? ""} onChange={(e) => setBotId(e.target.value)}>
-            {ordered.map((b) => (
-              <option key={b.bot.id} value={b.bot.id}>
-                {b.bot.name} · {b.isDemo ? "Demo" : "REAL"}
-                {b.bot.status === "running" ? "" : " (paused)"}
-              </option>
-            ))}
-          </select>
-        </label>
-        {chosen && (
-          <div
-            className={cn(
-              "rounded-lg px-2.5 py-1.5 text-[11px]",
-              chosen.isDemo ? "bg-[var(--mk-raised)] text-[var(--mk-muted)]" : "bg-[var(--mk-down)]/15 text-[var(--mk-down)]",
-            )}
+    <>
+      {/* Phones: dim the page behind the sheet; tapping it closes the sheet. */}
+      <button type="button" aria-label="Close trade panel" onClick={onClose} className="fixed inset-0 z-[55] bg-black/50 lg:hidden" />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-label="Trade"
+        // Phones: a bottom sheet over the whole screen's bottom (above the tab bar), large touch targets.
+        // Desktop: a panel on the right of the chart.
+        className="scrollbar-thin fixed inset-x-0 bottom-0 z-[60] max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t border-[var(--mk-border)] bg-[var(--mk-panel)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-glass lg:absolute lg:inset-x-auto lg:bottom-auto lg:right-2 lg:top-2 lg:z-40 lg:max-h-[calc(100%-1rem)] lg:w-[340px] lg:rounded-2xl lg:border lg:p-3"
+      >
+        <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-[var(--mk-border)] lg:hidden" aria-hidden />
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-[var(--mk-text)]">Trade {marketName}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)]"
+            aria-label="Close trade panel"
           >
-            {chosen.isDemo ? "Demo account" : "Real money"} {chosen.accountLabel} · risk {riskLabel(chosen.bot, chosen.currency)} per trade
-            {chosen.bot.status !== "running" && " · this bot is paused, so Risk Guard will refuse orders until you start it"}
-          </div>
-        )}
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-        <div role="radiogroup" aria-label="Side" className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--mk-border)] p-0.5">
-          {(["buy", "sell"] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              role="radio"
-              aria-checked={side === s}
-              onClick={() => setSide(s)}
+        <div className="grid gap-2.5">
+          <label className="grid gap-1">
+            <span className="text-[11px] font-medium text-[var(--mk-muted)]">Bot (its account and risk are used)</span>
+            <select className={field} value={chosen?.bot.id ?? ""} onChange={(e) => setBotId(e.target.value)}>
+              {ordered.map((b) => (
+                <option key={b.bot.id} value={b.bot.id}>
+                  {b.bot.name} · {b.isDemo ? "Demo" : "REAL"}
+                  {b.bot.status === "running" ? "" : " (paused)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          {chosen && (
+            <div
               className={cn(
-                "h-9 rounded-md text-sm font-semibold capitalize",
-                side === s ? (s === "buy" ? "bg-[var(--mk-up)] text-[var(--mk-bg)]" : "bg-[var(--mk-down)] text-[var(--mk-bg)]") : "text-[var(--mk-muted)]",
+                "rounded-lg px-2.5 py-1.5 text-[11px]",
+                chosen.isDemo ? "bg-[var(--mk-raised)] text-[var(--mk-muted)]" : "bg-[var(--mk-down)]/15 text-[var(--mk-down)]",
               )}
             >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {(
-            [
-              ["Stop", stop, setStop],
-              ["Target", target, setTarget],
-            ] as const
-          ).map(([label, value, setValue]) => (
-            <label key={label} className="grid gap-1">
-              <span className="text-[11px] font-medium text-[var(--mk-muted)]">{label} (optional)</span>
-              <input
-                className={field}
-                type="number"
-                inputMode="decimal"
-                step="any"
-                min="0"
-                value={value}
-                onChange={(e) => {
-                  setValue(e.target.value);
-                  setEdited(true);
-                }}
-              />
-            </label>
-          ))}
-        </div>
-        <p className="text-[11px] leading-snug text-[var(--mk-muted)]">
-          {edited ? "Your own levels." : `Suggested: stop ${STOP_ATR} × ATR away, target ${TARGET_RR} × the stop distance.`}
-          {price !== null && ` Price now ${formatPrice(price, decimals)}.`}
-          {edited && (
-            <button type="button" className="ml-1 font-semibold text-[var(--mk-accent)] hover:underline" onClick={() => setEdited(false)}>
-              Use the suggestion
-            </button>
+              {chosen.isDemo ? "Demo account" : "Real money"} {chosen.accountLabel} · risk {riskLabel(chosen.bot, chosen.currency)} per trade
+              {chosen.bot.status !== "running" && " · this bot is paused, so Risk Guard will refuse orders until you start it"}
+            </div>
           )}
-        </p>
-        {levelsError && (
-          <p className="text-xs text-[var(--mk-down)]" role="alert">
-            {levelsError}
+
+          <div role="radiogroup" aria-label="Side" className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--mk-border)] p-0.5">
+            {(["buy", "sell"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={side === s}
+                onClick={() => setSide(s)}
+                className={cn(
+                  "h-11 rounded-md text-base font-semibold capitalize lg:h-9 lg:text-sm",
+                  side === s ? (s === "buy" ? "bg-[var(--mk-up)] text-[var(--mk-bg)]" : "bg-[var(--mk-down)] text-[var(--mk-bg)]") : "text-[var(--mk-muted)]",
+                )}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ["Stop", stop, setStop],
+                ["Target", target, setTarget],
+              ] as const
+            ).map(([label, value, setValue]) => (
+              <label key={label} className="grid gap-1">
+                <span className="text-[11px] font-medium text-[var(--mk-muted)]">{label} (optional)</span>
+                <input
+                  className={field}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min="0"
+                  value={value}
+                  onChange={(e) => {
+                    setValue(e.target.value);
+                    setEdited(true);
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+          <p className="text-[11px] leading-snug text-[var(--mk-muted)]">
+            {edited ? "Your own levels." : `Suggested: stop ${STOP_ATR} × ATR away, target ${TARGET_RR} × the stop distance.`}
+            {price !== null && ` Price now ${formatPrice(price, decimals)}.`}
+            {edited && (
+              <button type="button" className="ml-1 font-semibold text-[var(--mk-accent)] hover:underline" onClick={() => setEdited(false)}>
+                Use the suggestion
+              </button>
+            )}
           </p>
-        )}
-
-        <button
-          type="button"
-          disabled={busy || !chosen || Boolean(levelsError)}
-          onClick={() => send(side)}
-          className={cn(
-            "h-11 rounded-lg text-sm font-bold text-[var(--mk-bg)] disabled:opacity-50",
-            side === "buy" ? "bg-[var(--mk-up)]" : "bg-[var(--mk-down)]",
+          {levelsError && (
+            <p className="text-xs text-[var(--mk-down)]" role="alert">
+              {levelsError}
+            </p>
           )}
-        >
-          {side === "buy" ? "Buy" : "Sell"} {marketName}
-        </button>
-        <button
-          type="button"
-          disabled={busy || !chosen}
-          onClick={() => send("close")}
-          className="h-9 rounded-lg border border-[var(--mk-border)] text-xs font-semibold text-[var(--mk-muted)] hover:text-[var(--mk-text)] disabled:opacity-50"
-        >
-          Close this bot&apos;s trades
-        </button>
+
+          <button
+            type="button"
+            disabled={busy || !chosen || Boolean(levelsError)}
+            onClick={() => send(side)}
+            className={cn(
+              "h-12 rounded-xl text-base font-bold text-[var(--mk-bg)] disabled:opacity-50 lg:h-11 lg:rounded-lg lg:text-sm",
+              side === "buy" ? "bg-[var(--mk-up)]" : "bg-[var(--mk-down)]",
+            )}
+          >
+            {side === "buy" ? "Buy" : "Sell"} {marketName}
+          </button>
+          <button
+            type="button"
+            disabled={busy || !chosen}
+            onClick={() => send("close")}
+            className="h-11 rounded-lg border border-[var(--mk-border)] text-sm font-semibold text-[var(--mk-muted)] hover:text-[var(--mk-text)] disabled:opacity-50 lg:h-9 lg:text-xs"
+          >
+            Close this bot&apos;s trades
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

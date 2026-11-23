@@ -18,7 +18,7 @@ import type { MarketSymbol } from "@/lib/markets/symbols";
 import { cn } from "@/lib/utils";
 
 const field =
-  "h-10 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-sm text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
+  "h-10 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-base text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)] lg:text-sm"; // 16px on phones: no zoom on focus
 
 type Permission = NotificationPermission | "unsupported";
 const permissionNow = (): Permission => (typeof Notification === "undefined" ? "unsupported" : Notification.permission);

@@ -20,7 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const field =
-  "h-9 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-sm text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)]";
+  // 16px on phones so tapping a field doesn't zoom the page.
+  "h-10 w-full rounded-lg border border-[var(--mk-border)] bg-[var(--mk-raised)] px-2.5 text-base text-[var(--mk-text)] outline-none focus:border-[var(--mk-accent)] lg:h-9 lg:text-sm";
 
 /** Add, edit and remove indicators. Lives inside the Markets panel so it follows the chart theme. */
 export function IndicatorsPanel({

@@ -659,6 +659,21 @@ export function MarketsView() {
             />
           )}
           {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
+          {/* Phones: Trade as a floating button on the chart (the toolbar one is off-screen there). */}
+          {tradeBots.length > 0 && !tradeOpen && load.kind === "ready" && (
+            <button
+              type="button"
+              onClick={() => {
+                setPanel(null);
+                setAlertsOpen(false);
+                setTradeOpen(true);
+              }}
+              className="absolute bottom-9 right-[86px] z-20 inline-flex h-11 items-center gap-1.5 rounded-full bg-[var(--mk-accent)] px-4 text-sm font-bold text-[var(--mk-bg)] shadow-glass lg:hidden"
+            >
+              <Zap className="h-4 w-4" aria-hidden />
+              Trade
+            </button>
+          )}
           {tradeOpen && meta && (
             <TradePanel
               bots={tradeBots}
@@ -887,11 +902,12 @@ const NO_IDS: string[] = [];
 const NO_ALERTS: PriceAlert[] = [];
 const NO_DRAWINGS: Drawing[] = [];
 
-const SYNC: Record<SyncStatus, { text: string; title: string; tone: string }> = {
-  loading: { text: "Loading your layout…", title: "Reading your saved watchlist, indicators, drawings and alerts", tone: "" },
-  saving: { text: "Saving…", title: "Saving to your account", tone: "" },
-  synced: { text: "Saved to your account", title: "Watchlist, indicators, drawings and alerts are saved to your account", tone: "" },
+const SYNC: Record<SyncStatus, { text: string; short: string; title: string; tone: string }> = {
+  loading: { short: "Loading…", text: "Loading your layout…", title: "Reading your saved watchlist, indicators, drawings and alerts", tone: "" },
+  saving: { short: "Saving…", text: "Saving…", title: "Saving to your account", tone: "" },
+  synced: { short: "Saved", text: "Saved to your account", title: "Watchlist, indicators, drawings and alerts are saved to your account", tone: "" },
   local: {
+    short: "Saved in this browser only",
     text: "Saved in this browser only",
     title: "Couldn't reach your account; changes are kept in this browser and sent when it's back",
     tone: "text-[var(--mk-accent)]",
@@ -901,8 +917,9 @@ const SYNC: Record<SyncStatus, { text: string; title: string; tone: string }> = 
 function SyncNote({ status }: { status: SyncStatus }) {
   const s = SYNC[status];
   return (
-    <span className={cn("hidden sm:inline", s.tone)} title={s.title} role="status" aria-live="polite">
-      {s.text}
+    <span className={s.tone} title={s.title} role="status" aria-live="polite">
+      <span className="sm:hidden">{s.short}</span>
+      <span className="hidden sm:inline">{s.text}</span>
     </span>
   );
 }

@@ -65,7 +65,7 @@ export const SymbolSearch = forwardRef<
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={open && results[hi] ? `${listId}-${hi}` : undefined}
-          className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold text-[var(--mk-text)] outline-none placeholder:font-normal placeholder:text-[var(--mk-muted)]"
+          className="h-full min-w-0 flex-1 bg-transparent text-base font-semibold sm:text-sm text-[var(--mk-text)] outline-none placeholder:font-normal placeholder:text-[var(--mk-muted)]"
           placeholder={current ? current.name : placeholder}
           value={open ? q : (current?.name ?? "")}
           onFocus={() => {

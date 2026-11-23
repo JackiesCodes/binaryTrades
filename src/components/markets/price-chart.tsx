@@ -112,7 +112,22 @@ const seriesKey = (c: IndicatorConfig) => c.type;
  * and RSI / MACD panes underneath that zoom, scroll and follow the crosshair together.
  */
 export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChart(
-  { palette, decimals, hasVolume, title, chartType, indicators, timeframe, drawings, onDrawingsChange, tool, onToolDone, alertLines = [], trades = NO_TRADES, className },
+  {
+    palette,
+    decimals,
+    hasVolume,
+    title,
+    chartType,
+    indicators,
+    timeframe,
+    drawings,
+    onDrawingsChange,
+    tool,
+    onToolDone,
+    alertLines = [],
+    trades = NO_TRADES,
+    className,
+  },
   ref,
 ) {
   const box = useRef<HTMLDivElement>(null);
