@@ -152,3 +152,15 @@ export function pnlClass(value: number | null | undefined): string {
   if (!value) return "text-muted-foreground";
   return value > 0 ? "text-profit" : "text-loss";
 }
+
+/** "just now", "3 min ago", "2 h ago", or the clock time for anything older than a day. */
+export function updatedLabel(at: number | null, now: number): string {
+  if (at === null) return "not yet";
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  return new Date(at).toLocaleString();
+}

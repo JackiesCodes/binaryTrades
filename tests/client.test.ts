@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { api, invalidFieldsMessage } from "@/lib/client";
+import { api, invalidFieldsMessage, updatedLabel } from "@/lib/client";
 
 describe("invalidFieldsMessage", () => {
   it("names the rejected field and what it accepts", () => {
@@ -43,5 +43,17 @@ describe("api()", () => {
     await expect(api("/api/x")).resolves.toEqual({ ok: true });
     answer('{"error":"BOT_NOT_FOUND"}', 404);
     await expect(api("/api/x")).rejects.toThrow();
+  });
+});
+
+describe("updatedLabel", () => {
+  const now = Date.UTC(2026, 10, 23, 12, 0, 0);
+  it("describes how long ago the figures were refreshed", () => {
+    expect(updatedLabel(null, now)).toBe("not yet");
+    expect(updatedLabel(now - 10_000, now)).toBe("just now");
+    expect(updatedLabel(now + 5_000, now)).toBe("just now"); // clock skew never goes negative
+    expect(updatedLabel(now - 3 * 60_000, now)).toBe("3 min ago");
+    expect(updatedLabel(now - 2 * 3_600_000, now)).toBe("2 h ago");
+    expect(updatedLabel(now - 3 * 86_400_000, now)).toBe(new Date(now - 3 * 86_400_000).toLocaleString());
   });
 });

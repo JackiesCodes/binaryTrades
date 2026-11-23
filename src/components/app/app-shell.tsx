@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { BrandMark, Wordmark } from "@/components/app/brand";
+import { ConnectionBanner } from "@/components/app/connection-banner";
 import { DashboardProvider, useDashboard } from "@/components/app/dashboard-context";
 import { FeedbackProvider, useFeedback } from "@/components/app/feedback";
 import { useKillSwitch } from "@/components/app/kill-switch";
@@ -97,6 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex flex-1">
             <Rail />
             <main className="mx-auto w-full min-w-0 max-w-[1680px] flex-1 px-3 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 lg:pb-6 lg:pl-1 lg:pr-5">
+              <ConnectionBanner />
               {children}
             </main>
           </div>

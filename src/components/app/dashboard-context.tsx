@@ -14,6 +14,12 @@ interface DashboardContextValue {
   view: Book;
   setView: (book: Book) => void;
   lastTick: string | null;
+  /** When the server last answered (a fresh state or "unchanged"), as epoch ms. */
+  updatedAt: number | null;
+  /** Failed refreshes in a row; 0 when the last one worked. */
+  failures: number;
+  /** The browser's own view of the network. */
+  online: boolean;
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
@@ -27,6 +33,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [view, setViewState] = useState<Book>("real");
   const [lastTick, setLastTick] = useState<string | null>(null);
   const viewChosen = useRef(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [failures, setFailures] = useState(0);
+  const [online, setOnline] = useState(true);
 
   const etag = useRef<string | null>(null);
 
@@ -36,6 +45,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/state", { cache: "no-store", headers: etag.current ? { "if-none-match": etag.current } : undefined });
       if (res.status === 304) {
         setError(null);
+        setFailures(0);
+        setUpdatedAt(Date.now());
         return;
       }
       if (!res.ok) {
@@ -53,6 +64,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       etag.current = res.headers.get("etag");
       setState(next);
       setError(null);
+      setFailures(0);
+      setUpdatedAt(Date.now());
       // Until you pick, show real accounts — or demo when demo accounts are all you have.
       if (!viewChosen.current) {
         const hasReal = next.brokers.some((b) => !b.is_demo);
@@ -60,6 +73,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       setError((e as Error).message);
+      setFailures((n) => n + 1);
     }
   }, []);
 
@@ -91,7 +105,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     // Coming back to the page: catch up straight away.
     const onVisible = () => visible() && refresh();
     document.addEventListener("visibilitychange", onVisible);
+    // Phones drop and regain the network often: say so, and catch up the moment it's back.
+    setOnline(navigator.onLine);
+    const onOnline = () => {
+      setOnline(true);
+      void refresh();
+    };
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
     return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       clearInterval(poll);
       clearInterval(tickTimer);
       document.removeEventListener("visibilitychange", onVisible);
@@ -99,7 +124,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   return (
-    <DashboardContext.Provider value={{ state, error, refresh, view, setView, lastTick }}>
+    <DashboardContext.Provider value={{ state, error, refresh, view, setView, lastTick, updatedAt, failures, online }}>
       {children}
     </DashboardContext.Provider>
   );
