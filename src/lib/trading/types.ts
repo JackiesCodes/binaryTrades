@@ -71,7 +71,7 @@ export interface Bot {
   last_bar_epoch: number | null;
   last_signal_at: string | null;
   /** The engine's latest verdict on this bot, e.g. "waiting for next bar" or "rejected: …" (null before its first check). */
-  last_check?: { at: string; result: string } | null;
+  last_check?: { at: string; result: string; stuck_since?: string | null; stuck_warned?: boolean } | null;
   /** Demo-only high-risk challenge (null when none has been run). */
   challenge?: Challenge | null;
   created_at: string;

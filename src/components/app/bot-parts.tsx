@@ -489,7 +489,13 @@ export function describeCheck(bot: Pick<Bot, "status" | "source" | "timeframe" |
     [/^kill switch on$/, "The kill switch is on.", "warn"],
     [/^no strategy$/, "This bot has no strategy set.", "warn"],
   ];
-  for (const [re, text, tone] of map) if (re.test(r)) return { text, tone, at: c.at };
+  for (const [re, text, tone] of map) {
+    if (!re.test(r)) continue;
+    // Stuck for a while: say for how long (the watchdog also notifies after 2 hours).
+    const stuckMin = c.stuck_since ? (now - Date.parse(c.stuck_since)) / 60_000 : 0;
+    const spell = stuckMin >= 60 ? ` For ${stuckMin < 2880 ? `${Math.round(stuckMin / 60)} h` : `${Math.round(stuckMin / 1440)} days`} now.` : "";
+    return { text: text + spell, tone, at: c.at };
+  }
   if (/^(buy|sell) refused: /.test(r)) return { text: `Wanted to ${r.split(" ")[0]!.toUpperCase()}, but the order was refused: ${r.replace(/^(buy|sell) refused: /, "")}`, tone: "warn" as const, at: c.at };
   if (/^paused/.test(r)) return { text: r.replace(/^paused: /, "Paused: "), tone: "warn" as const, at: c.at };
   if (/^error: /.test(r)) return { text: `Error: ${r.slice(7)}`, tone: "warn" as const, at: c.at };

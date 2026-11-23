@@ -10,6 +10,7 @@ import { activeChallenge, advanceBookState, checkRisk, derivStake } from "@/lib/
 import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
 import { validMultiplier } from "@/lib/trading/symbols";
 import type { Book, Bot, BrokerAccount, Challenge, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
+import { watchdog } from "@/lib/trading/watchdog";
 
 /** External calls, swappable in tests. */
 export const deps = {
@@ -796,9 +797,15 @@ async function recordCheck(bot: Bot, verdict: string): Promise<void> {
   // Between candles, keep showing the verdict from the last candle close (e.g. a refused order)
   // instead of replacing it with "waiting for next bar"; only the time moves on.
   if (result === "waiting for next bar" && prev && prev.result !== result) result = prev.result;
-  if (prev && prev.result === result && Date.now() - Date.parse(prev.at) < 5 * 60_000) return;
+  const dog = watchdog(prev, verdict, bot.name);
+  if (dog.warn) await log("warn", dog.warn, { user_id: bot.user_id, bot_id: bot.id });
+  if (dog.recovered) await log("info", dog.recovered, { user_id: bot.user_id, bot_id: bot.id });
+  const sameStuck = (prev?.stuck_since ?? null) === dog.stuck_since && Boolean(prev?.stuck_warned) === dog.stuck_warned;
+  if (prev && prev.result === result && sameStuck && Date.now() - Date.parse(prev.at) < 5 * 60_000) return;
   try {
-    await forUser(bot.user_id).bots.update(bot.id, { last_check: { at: nowIso(), result: result.slice(0, 300) } });
+    await forUser(bot.user_id).bots.update(bot.id, {
+      last_check: { at: nowIso(), result: result.slice(0, 300), stuck_since: dog.stuck_since, stuck_warned: dog.stuck_warned },
+    });
   } catch {
     // Older databases without the column: the check is informational, never block trading on it.
   }

@@ -84,7 +84,7 @@ export function messageForLog(level: EventLog["level"], message: string, botName
     if (/^KILL SWITCH/.test(message)) return { topic: "problems", msg: { title: "Kill switch on", body: message.replace(/^KILL SWITCH:\s*/, ""), url: "/dashboard/risk" } };
     // Every error needs a look; of the warnings only bots being paused and unconfirmed MT5 orders.
     // (Routine rejected signals and other warnings stay in Alerts & Logs.)
-    if (level === "error" || /\bpaused\b|not confirmed/i.test(message)) {
+    if (level === "error" || /\bpaused\b|not confirmed|can't trade/i.test(message)) {
       return { topic: "problems", msg: { title: "Needs your attention", body: message, url: "/dashboard/logs" } };
     }
   }
