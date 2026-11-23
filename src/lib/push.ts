@@ -130,17 +130,12 @@ export async function sendPush(
   userId: string,
   topic: keyof PushTopics | null,
   msg: PushMessage,
-  opts: { store?: Store; send?: PushSender; only?: string } = {},
+  opts: { store?: Store; send?: PushSender; only?: string; devices?: PushDevice[] } = {},
 ): Promise<number> {
   const send = opts.send ?? (pushEnabled() ? webPushSender : null);
   if (!send) return 0;
   const store = opts.store ?? getStore();
-  let devices: PushDevice[];
-  try {
-    devices = await store.push_devices.all({ eq: { user_id: userId } });
-  } catch {
-    return 0; // table not there yet, database hiccup: skip quietly
-  }
+  let devices = opts.devices ?? (await userDevices(userId, store));
   devices = devices.filter((d) => (opts.only ? d.id === opts.only : true) && (topic === null || d.topics?.[topic] !== false));
   const payload = JSON.stringify({ ...msg, url: msg.url.startsWith("/") ? msg.url : "/dashboard" });
   let sent = 0;
@@ -159,6 +154,14 @@ export async function sendPush(
   return sent;
 }
 
+async function userDevices(userId: string, store: Store): Promise<PushDevice[]> {
+  try {
+    return await store.push_devices.all({ eq: { user_id: userId } });
+  } catch {
+    return []; // table not there yet, database hiccup: skip quietly
+  }
+}
+
 /** Called for every log line: alerts, trades and problems become notifications on the user's devices. */
 export async function pushForLog(
   level: EventLog["level"],
@@ -169,10 +172,13 @@ export async function pushForLog(
 ): Promise<void> {
   if (!userId || !NOTIFYING.has(level)) return;
   if (!pushEnabled()) return;
-  let botName: string | null = null;
-  if (botId && level === "trade") botName = (await store.bots.get(botId).catch(() => null))?.name ?? null;
-  const n = messageForLog(level, message, botName);
-  if (!n) return;
+  const kind = messageForLog(level, message);
+  if (!kind) return;
+  // Most users have no devices: find that out before any other lookup.
+  const devices = (await userDevices(userId, store)).filter((d) => d.topics?.[kind.topic] !== false);
+  if (!devices.length) return;
+  const botName = botId && level === "trade" ? ((await store.bots.get(botId).catch(() => null))?.name ?? null) : null;
+  const n = botName ? messageForLog(level, message, botName)! : kind;
   if (n.topic === "problems") {
     // This line is already in the log: an earlier identical one in the window means we've told them.
     const since = new Date(Date.now() - PROBLEM_REPEAT_MS).toISOString();
@@ -181,5 +187,5 @@ export async function pushForLog(
       .catch(() => []);
     if (same.length > 1) return;
   }
-  await sendPush(userId, n.topic, n.msg, { store });
+  await sendPush(userId, n.topic, n.msg, { store, devices });
 }

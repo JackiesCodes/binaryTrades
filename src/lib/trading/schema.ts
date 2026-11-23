@@ -383,6 +383,15 @@ create index if not exists push_devices_user on push_devices (user_id);
 alter table push_devices enable row level security;
 `,
   },
+  {
+    file: "0012_push_summary.sql",
+    sql: `-- 0012: daily summary notifications: each device's time zone, and the day it last got a summary.
+-- Idempotent: safe to run more than once.
+
+alter table push_devices add column if not exists timezone text;
+alter table push_devices add column if not exists summary_sent_on text;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -404,4 +413,6 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'last_check') as done",
   "0010_markets_state.sql": "select to_regclass('public.markets_state') is not null as done",
   "0011_push_devices.sql": "select to_regclass('public.push_devices') is not null as done",
+  "0012_push_summary.sql":
+    "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'push_devices' and column_name = 'summary_sent_on') as done",
 };

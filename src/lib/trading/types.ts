@@ -268,6 +268,8 @@ export interface PushTopics {
   trades: boolean;
   /** Bots paused or failing, refused orders, the kill switch, and account security events. */
   problems?: boolean;
+  /** One message each evening with the day's results. */
+  summary?: boolean;
 }
 
 /** One browser or phone that receives push notifications (Web Push). */
@@ -282,4 +284,8 @@ export interface PushDevice {
   label: string | null;
   created_at: string;
   last_sent_at: string | null;
+  /** IANA time zone of the device (e.g. "Africa/Johannesburg"), for the evening summary. */
+  timezone?: string | null;
+  /** Local date (YYYY-MM-DD) the last daily summary was sent for. */
+  summary_sent_on?: string | null;
 }

@@ -136,6 +136,14 @@ describe("/api/push", () => {
     expect(await getStore().push_devices.all()).toHaveLength(0);
   });
 
+  it("remembers the device's time zone for the evening summary", async () => {
+    await signIn("ann@example.com");
+    expect((await POST(req("POST", { subscription: { endpoint: FCM, keys: KEYS }, timezone: "Mars/Olympus" }), ctx)).status).toBe(400);
+    await POST(req("POST", { subscription: { endpoint: FCM, keys: KEYS }, timezone: "Africa/Johannesburg" }), ctx);
+    await POST(req("POST", { subscription: { endpoint: FCM, keys: KEYS } }), ctx); // older page: keeps the zone
+    expect((await getStore().push_devices.all())[0]!.timezone).toBe("Africa/Johannesburg");
+  });
+
   it("refuses non-push addresses, other users' devices and signed-out calls", async () => {
     expect((await POST(req("POST", { subscription: { endpoint: FCM, keys: KEYS } }), ctx)).status).toBe(401);
     await signIn("ann@example.com");

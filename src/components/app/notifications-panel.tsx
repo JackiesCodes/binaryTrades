@@ -54,6 +54,14 @@ async function registration(): Promise<ServiceWorkerRegistration> {
   return (await navigator.serviceWorker.getRegistration("/")) ?? navigator.serviceWorker.register("/sw.js", { scope: "/" });
 }
 
+function deviceTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Ask for permission, subscribe this browser and register it. Sends a test notification. */
 async function subscribeHere(publicKey: string): Promise<DeviceView> {
   const perm = await Notification.requestPermission();
@@ -63,7 +71,7 @@ async function subscribeHere(publicKey: string): Promise<DeviceView> {
   const sub =
     (await reg.pushManager.getSubscription()) ??
     (await withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }), 20_000));
-  const res = await api<{ device: DeviceView }>("/api/push", "POST", { subscription: sub.toJSON() });
+  const res = await api<{ device: DeviceView }>("/api/push", "POST", { subscription: sub.toJSON(), timezone: deviceTimeZone() });
   await api("/api/push/test", "POST", { id: res.device.id }).catch(() => undefined);
   return res.device;
 }
@@ -79,6 +87,7 @@ const TOPICS: Array<{ key: keyof PushTopics; label: string; about: string }> = [
   { key: "alerts", label: "Price alerts", about: "When a price alert on the Markets page is reached" },
   { key: "trades", label: "Trades", about: "When a bot opens or closes a trade" },
   { key: "problems", label: "Problems", about: "A bot paused or failing, a refused order, the kill switch, or a security change on your account" },
+  { key: "summary", label: "Daily summary", about: "Each evening at 9 pm: trades closed today, wins and P&L, positions still open" },
 ];
 
 /** Turn push notifications on for this phone or computer, choose what they're about, manage devices. */
@@ -100,7 +109,7 @@ export function NotificationsPanel() {
       const sub = data.enabled ? await (await navigator.serviceWorker.getRegistration("/"))?.pushManager.getSubscription() : null;
       if (sub) {
         try {
-          const res = await api<{ device: DeviceView }>("/api/push", "POST", { subscription: sub.toJSON() });
+          const res = await api<{ device: DeviceView }>("/api/push", "POST", { subscription: sub.toJSON(), timezone: deviceTimeZone() });
           setThisId(res.device.id);
           data.devices = [res.device, ...data.devices.filter((d) => d.id !== res.device.id)];
         } catch {

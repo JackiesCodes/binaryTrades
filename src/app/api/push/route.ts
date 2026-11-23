@@ -6,6 +6,7 @@ import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { MAX_DEVICES_PER_USER, pushEnabled, pushPublicKey } from "@/lib/push";
 import { deviceLabel, isPushEndpoint } from "@/lib/push-endpoint";
+import { isTimeZone } from "@/lib/push-summary";
 import { getStore, nowIso } from "@/lib/trading/store";
 import type { PushDevice } from "@/lib/trading/types";
 
@@ -21,7 +22,9 @@ export const GET = withUser(async (user) => {
   return NextResponse.json({ enabled: pushEnabled(), public_key: pushPublicKey(), devices: devices.map(view) });
 });
 
-const topics = z.object({ alerts: z.boolean(), trades: z.boolean(), problems: z.boolean().optional() }).strict();
+const topics = z
+  .object({ alerts: z.boolean(), trades: z.boolean(), problems: z.boolean().optional(), summary: z.boolean().optional() })
+  .strict();
 const subscribeSchema = z
   .object({
     subscription: z.object({
@@ -29,6 +32,7 @@ const subscribeSchema = z
       keys: z.object({ p256dh: z.string().min(20).max(200), auth: z.string().min(8).max(100) }),
     }),
     topics: topics.optional(),
+    timezone: z.string().max(64).refine(isTimeZone, "Unknown time zone").optional(),
   })
   .strict();
 
@@ -37,7 +41,7 @@ export const POST = withUser(async (user, request) => {
   if (!pushEnabled()) return jsonError(503, "PUSH_NOT_CONFIGURED");
   const parsed = subscribeSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
-  const { subscription, topics: chosen } = parsed.data;
+  const { subscription, topics: chosen, timezone } = parsed.data;
   const store = getStore().push_devices;
   const id = deviceId(subscription.endpoint);
   const existing = await store.get(id);
@@ -47,10 +51,13 @@ export const POST = withUser(async (user, request) => {
     endpoint: subscription.endpoint,
     p256dh: subscription.keys.p256dh,
     auth: subscription.keys.auth,
-    topics: chosen ?? (existing?.user_id === user.id ? existing.topics : { alerts: true, trades: true, problems: true }),
+    topics: chosen ?? (existing?.user_id === user.id ? existing.topics : { alerts: true, trades: true, problems: true, summary: true }),
     label: deviceLabel(request.headers.get("user-agent")),
     created_at: existing?.user_id === user.id ? existing.created_at : nowIso(),
     last_sent_at: null,
+    timezone: timezone ?? existing?.timezone ?? null,
+    // Re-subscribing the same day mustn't bring a second summary.
+    summary_sent_on: existing?.user_id === user.id ? (existing.summary_sent_on ?? null) : null,
   };
   // The same browser signed in to another account: it now belongs to this one.
   if (existing) await store.remove(id);
