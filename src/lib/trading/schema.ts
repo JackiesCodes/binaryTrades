@@ -361,6 +361,28 @@ create table if not exists markets_state (
 alter table markets_state enable row level security;
 `,
   },
+  {
+    file: "0011_push_devices.sql",
+    sql: `-- 0011: devices (browsers, phones) that get push notifications for price alerts and trades.
+-- Idempotent: safe to run more than once.
+
+create table if not exists push_devices (
+  id text primary key,
+  user_id text not null references users (id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  topics jsonb not null default '{"alerts": true, "trades": true}',
+  label text,
+  created_at timestamptz not null default now(),
+  last_sent_at timestamptz
+);
+
+create index if not exists push_devices_user on push_devices (user_id);
+
+alter table push_devices enable row level security;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -381,4 +403,5 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
   "0009_bot_last_check.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'last_check') as done",
   "0010_markets_state.sql": "select to_regclass('public.markets_state') is not null as done",
+  "0011_push_devices.sql": "select to_regclass('public.push_devices') is not null as done",
 };

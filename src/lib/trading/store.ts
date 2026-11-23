@@ -16,6 +16,7 @@ import type {
   EventLog,
   MarketData,
   MarketsState,
+  PushDevice,
   Mt5Command,
   Settings,
   Signal,
@@ -64,9 +65,10 @@ export interface Store {
   auth_tokens: Collection<AuthToken>;
   market_data: Collection<MarketData>;
   markets_state: Collection<MarketsState>;
+  push_devices: Collection<PushDevice>;
 }
 
-const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens", "market_data", "markets_state"] as const;
+const TABLES = ["settings", "brokers", "bots", "trades", "signals", "commands", "logs", "equity", "users", "auth_tokens", "market_data", "markets_state", "push_devices"] as const;
 type TableName = (typeof TABLES)[number];
 
 // Logs, signals and equity points grow forever; the file backend keeps the newest N.
@@ -322,6 +324,7 @@ function buildStore(): Store {
       auth_tokens: c("auth_tokens"),
       market_data: c("market_data"),
       markets_state: c("markets_state"),
+      push_devices: c("push_devices"),
     };
   }
 
@@ -340,6 +343,7 @@ function buildStore(): Store {
     auth_tokens: file.collection("auth_tokens"),
     market_data: file.collection("market_data"),
     markets_state: file.collection("markets_state"),
+    push_devices: file.collection("push_devices"),
   };
 }
 
@@ -404,6 +408,7 @@ export interface UserStore {
   logs: Collection<EventLog>;
   equity: Collection<EquityPoint>;
   markets_state: Collection<MarketsState>;
+  push_devices: Collection<PushDevice>;
 }
 
 /** Everything one user may read or change. Use this in every user-facing code path. */
@@ -417,6 +422,7 @@ export function forUser(userId: string, store = getStore()): UserStore {
     logs: scoped(store.logs, userId),
     equity: scoped(store.equity, userId),
     markets_state: scoped(store.markets_state, userId),
+    push_devices: scoped(store.push_devices, userId),
   };
 }
 
@@ -484,4 +490,9 @@ export async function log(
     context: extra.context ?? null,
     created_at: nowIso(),
   });
+  // Price alerts and trades also go to the user's phone (if they turned notifications on).
+  if ((level === "alert" || level === "trade") && extra.user_id && (process.env.VAPID_PRIVATE_KEY || process.env.SESSION_SECRET)) {
+    const { pushForLog } = await import("@/lib/push");
+    await pushForLog(level, message, extra.user_id, extra.bot_id, store);
+  }
 }

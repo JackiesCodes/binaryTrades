@@ -16,6 +16,7 @@ const PUBLIC_PREFIXES = [
   "/icon.svg",
   "/apple-icon",
   "/robots.txt",
+  "/sw.js",
   "/sitemap.xml",
 ];
 const PUBLIC_PAGES = new Set(["/", "/forgot-password", "/reset-password", "/verify-email"]);

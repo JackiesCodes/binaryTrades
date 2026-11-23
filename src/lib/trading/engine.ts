@@ -583,6 +583,12 @@ export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
               }
             : {}),
         });
+        if (c.is_sold) {
+          await log("trade", `DERIV closed ${trade.symbol} ${c.profit >= 0 ? "+" : ""}${c.profit.toFixed(2)}`, {
+            user_id: broker.user_id,
+            bot_id: trade.bot_id,
+          });
+        }
       } else if (!c.is_sold) {
         await store.trades.insert({
           id: newId(),

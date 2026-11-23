@@ -5,6 +5,7 @@ import { KeyRound, LogOut, MailCheck, MonitorSmartphone, Trash2, UserRound } fro
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
+import { NotificationsPanel } from "@/components/app/notifications-panel";
 import { Field, PageSkeleton, Panel } from "@/components/app/widgets";
 import { AsideTitle, FieldBox, Strip, Workspace } from "@/components/app/workspace";
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +73,7 @@ export default function ProfilePage() {
       }
     >
       <DetailsPanel profile={profile} onSaved={setProfile} />
+      <NotificationsPanel />
       <PasswordPanel profile={profile} onSaved={setProfile} />
     </Workspace>
   );

@@ -261,3 +261,23 @@ export interface MarketsState {
   alerts: unknown[] | null;
   updated_at: string;
 }
+
+/** What a device wants to be notified about. */
+export interface PushTopics {
+  alerts: boolean;
+  trades: boolean;
+}
+
+/** One browser or phone that receives push notifications (Web Push). */
+export interface PushDevice {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  topics: PushTopics;
+  /** A short label like "Chrome on Android", from the browser that subscribed. */
+  label: string | null;
+  created_at: string;
+  last_sent_at: string | null;
+}
