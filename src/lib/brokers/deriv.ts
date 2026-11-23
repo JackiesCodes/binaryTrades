@@ -352,33 +352,62 @@ export const DERIV_GRANULARITIES = [60, 120, 180, 300, 600, 900, 1800, 3600, 720
 const CANDLES_PER_REQUEST = 1000;
 
 export async function derivCandles(symbol: string, granularity: number, count: number): Promise<Candle[]> {
-  const wanted = Math.min(Math.max(count, 1), 5000);
-  return withDeriv(null, async (s) => {
-    let candles: Candle[] = [];
-    let end: number | "latest" = "latest";
-    while (candles.length < wanted) {
-      const requested = Math.min(CANDLES_PER_REQUEST, wanted - candles.length);
-      const res: { candles?: Json[] } = await s.send<{ candles?: Json[] }>({
-        ticks_history: symbol,
-        end,
-        count: requested,
-        style: "candles",
-        granularity,
-        ...(end === "latest" ? { adjust_start_time: 1 } : {}),
-      });
-      const page = (res.candles ?? []).map((c) => ({
+  return withDeriv(null, (s) =>
+    pageCandles(Math.min(Math.max(count, 1), 5000), async (end, requested) => {
+      const res = await retryOnce(() =>
+        s.send<{ candles?: Json[] }>({
+          ticks_history: symbol,
+          end,
+          count: requested,
+          style: "candles",
+          granularity,
+          ...(end === "latest" ? { adjust_start_time: 1 } : {}),
+        }),
+      );
+      return (res.candles ?? []).map((c) => ({
         epoch: Number(c.epoch),
         open: Number(c.open),
         high: Number(c.high),
         low: Number(c.low),
         close: Number(c.close),
       }));
-      const older = page.filter((c) => !candles.length || c.epoch < candles[0]!.epoch);
-      if (!older.length) break; // no more history
-      candles = [...older, ...candles];
-      end = older[0]!.epoch - 1;
-      if (page.length < requested) break; // reached the start of the available history
-    }
-    return candles;
-  });
+    }),
+  );
+}
+
+/** At most this many requests for one history (a long closed spell can't make it loop for ever). */
+const MAX_CANDLE_PAGES = 12;
+
+/**
+ * Collects `wanted` candles, newest last, asking for older pages as needed. Deriv's `count` covers
+ * time, not candles: hours the market was closed (weekends for gold and forex) come back empty,
+ * so a page is often shorter than asked for. Only an empty page, or one with nothing older,
+ * means the history has run out.
+ */
+export async function pageCandles(
+  wanted: number,
+  fetchPage: (end: number | "latest", count: number) => Promise<Candle[]>,
+): Promise<Candle[]> {
+  let candles: Candle[] = [];
+  let end: number | "latest" = "latest";
+  for (let pages = 0; candles.length < wanted && pages < MAX_CANDLE_PAGES; pages++) {
+    const requested = Math.min(CANDLES_PER_REQUEST, Math.max(wanted - candles.length, 100));
+    const page = await fetchPage(end, requested);
+    const older = page.filter((c) => !candles.length || c.epoch < candles[0]!.epoch);
+    if (!older.length) break; // no more history
+    candles = [...older, ...candles];
+    end = older[0]!.epoch - 1;
+  }
+  return candles.slice(-wanted);
+}
+
+/** Deriv now and then answers "internal server error" or times out; one quick retry covers it. */
+async function retryOnce<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (!(error instanceof DerivError) || !/internal|timed out|temporar|try again/i.test(error.message)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return fn();
+  }
 }
