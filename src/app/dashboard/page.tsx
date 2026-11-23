@@ -6,6 +6,7 @@ import { AlertTriangle, Check, Plus, ShieldCheck, Wallet } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { CHART_RANGES, EquityChart, inRange, type ChartRange } from "@/components/app/equity-chart";
+import { NotifyPrompt } from "@/components/app/notifications-panel";
 import { TradeDialog } from "@/components/app/trade-chart";
 import { EmptyState, PageSkeleton, Panel } from "@/components/app/widgets";
 import { AsideTitle, KV, PositionCard, RangePills, Strip, Switcher, Workspace } from "@/components/app/workspace";
@@ -166,6 +167,7 @@ export default function OverviewPage() {
       }
     >
       <GettingStarted />
+      <NotifyPrompt />
 
       <Panel>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

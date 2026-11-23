@@ -54,6 +54,27 @@ async function registration(): Promise<ServiceWorkerRegistration> {
   return (await navigator.serviceWorker.getRegistration("/")) ?? navigator.serviceWorker.register("/sw.js", { scope: "/" });
 }
 
+/** Ask for permission, subscribe this browser and register it. Sends a test notification. */
+async function subscribeHere(publicKey: string): Promise<DeviceView> {
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw Object.assign(new Error("Notifications weren't allowed. You can allow them in your browser's site settings."), { name: "Denied" });
+  const reg = await registration();
+  await navigator.serviceWorker.ready;
+  const sub =
+    (await reg.pushManager.getSubscription()) ??
+    (await withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }), 20_000));
+  const res = await api<{ device: DeviceView }>("/api/push", "POST", { subscription: sub.toJSON() });
+  await api("/api/push/test", "POST", { id: res.device.id }).catch(() => undefined);
+  return res.device;
+}
+
+function pushErrorText(e: unknown): string {
+  const err = e as Error;
+  // The browser refused to subscribe (private window, push service unreachable, blocked by a setting).
+  const browserRefused = err.name === "NotAllowedError" || err.name === "AbortError" || /registration failed|push service/i.test(err.message);
+  return browserRefused ? "This browser couldn't turn on notifications. Private or incognito windows can't receive them; try a normal window." : err.message;
+}
+
 const TOPICS: Array<{ key: keyof PushTopics; label: string; about: string }> = [
   { key: "alerts", label: "Price alerts", about: "When a price alert on the Markets page is reached" },
   { key: "trades", label: "Trades", about: "When a bot opens or closes a trade" },
@@ -98,34 +119,14 @@ export function NotificationsPanel() {
     if (!info?.public_key) return;
     setBusy(true);
     try {
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
-      if (perm !== "granted") {
-        toast("Notifications weren't allowed. You can allow them in your browser's site settings.", "error", 8000);
-        return;
-      }
-      const reg = await registration();
-      await navigator.serviceWorker.ready;
-      const sub =
-        (await reg.pushManager.getSubscription()) ??
-        (await withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(info.public_key) }), 20_000));
-      const res = await api<{ device: DeviceView }>("/api/push", "POST", { subscription: sub.toJSON() });
-      setThisId(res.device.id);
-      setInfo({ ...info, devices: [res.device, ...info.devices.filter((d) => d.id !== res.device.id)] });
-      await api("/api/push/test", "POST", { id: res.device.id }).catch(() => undefined);
+      const device = await subscribeHere(info.public_key);
+      setThisId(device.id);
+      setInfo({ ...info, devices: [device, ...info.devices.filter((d) => d.id !== device.id)] });
       toast("Notifications are on for this device", "success");
     } catch (e) {
-      const err = e as Error;
-      // The browser refused to subscribe (private window, push service unreachable, blocked by a setting).
-      const browserRefused = err.name === "NotAllowedError" || err.name === "AbortError" || /registration failed|push service/i.test(err.message);
-      toast(
-        browserRefused
-          ? "This browser couldn't turn on notifications. Private or incognito windows can't receive them; try a normal window."
-          : err.message,
-        "error",
-        10_000,
-      );
+      toast(pushErrorText(e), "error", 10_000);
     } finally {
+      setPermission(Notification.permission);
       setBusy(false);
     }
   };
@@ -300,5 +301,78 @@ function DeviceRow({
         </Button>
       )}
     </div>
+  );
+}
+
+const PROMPT_DISMISSED = "bt-push-prompt-dismissed";
+
+/**
+ * A one-tap invitation on the Overview: shown only where notifications can work, the site has them
+ * set up, and this browser hasn't been asked yet (and the card wasn't closed before).
+ */
+export function NotifyPrompt() {
+  const { toast } = useFeedback();
+  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (localStorage.getItem(PROMPT_DISMISSED)) return;
+      } catch {
+        return; // storage blocked: don't nag every visit
+      }
+      if (detectSupport() !== "yes" || Notification.permission !== "default") return;
+      if (await (await navigator.serviceWorker.getRegistration("/"))?.pushManager.getSubscription()) return;
+      const info = await api<PushInfo>("/api/push");
+      if (!cancelled && info.enabled && info.public_key) setPublicKey(info.public_key);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!publicKey) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem(PROMPT_DISMISSED, "1");
+    } catch {
+      // fine: it just shows again next time
+    }
+    setPublicKey(null);
+  };
+  return (
+    <section className="flex flex-wrap items-center gap-3 rounded-[18px] border border-profit/25 bg-profit/[0.07] p-4 sm:flex-nowrap">
+      <BellRing className="h-5 w-5 shrink-0 text-profit" aria-hidden />
+      <p className="min-w-0 flex-1 basis-[calc(100%-3rem)] text-sm sm:basis-auto">
+        <b className="font-semibold text-ivory">Get notified on this device</b>{" "}
+        <span className="text-muted-foreground">when an alert is reached, a bot trades, or something needs your attention.</span>
+      </p>
+      <div className="flex w-full gap-2 sm:w-auto">
+        <Button variant="ghost" onClick={dismiss} disabled={busy} className="h-10 flex-1 rounded-xl sm:flex-none">
+          Not now
+        </Button>
+        <Button
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await subscribeHere(publicKey);
+              toast("Notifications are on. Choose what you get in Account → Notifications.", "success", 6000);
+              setPublicKey(null);
+            } catch (e) {
+              toast(pushErrorText(e), "error", 10_000);
+              if (Notification.permission !== "default") setPublicKey(null);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          className="h-10 flex-1 rounded-xl sm:flex-none"
+        >
+          {busy ? "Turning on…" : "Turn on"}
+        </Button>
+      </div>
+    </section>
   );
 }
