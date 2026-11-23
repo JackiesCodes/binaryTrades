@@ -92,7 +92,23 @@ describe("which events notify", () => {
     expect(messageForLog("trade", "MT5 closed EURUSD -1.00")?.msg.title).toBe("Trade closed");
     expect(messageForLog("trade", "MT5 BUY EURUSD queued for Exness")).toBeNull();
     expect(messageForLog("info", "Bot started")).toBeNull();
-    expect(messageForLog("warn", "Order refused")).toBeNull();
+  });
+
+  it("problems: errors, paused bots, the kill switch and security changes, not routine warnings", () => {
+    expect(messageForLog("error", "Gold bot paused: Script error — x is not defined")).toMatchObject({
+      topic: "problems",
+      msg: { title: "Needs your attention", url: "/dashboard/logs" },
+    });
+    expect(messageForLog("error", "KILL SWITCH: daily loss limit hit. All bots paused, all positions closing.")).toMatchObject({
+      topic: "problems",
+      msg: { title: "Kill switch on", body: "daily loss limit hit. All bots paused, all positions closing.", url: "/dashboard/risk" },
+    });
+    expect(messageForLog("warn", "Max drawdown reached — paused 2 real-account bot(s) until you restart them")?.topic).toBe("problems");
+    expect(messageForLog("warn", "MT5 open command was not confirmed by the bridge within 3 minutes")?.topic).toBe("problems");
+    expect(messageForLog("warn", "Password changed — other devices were signed out")).toMatchObject({ msg: { title: "Account security", url: "/dashboard/account" } });
+    expect(messageForLog("warn", "Signed out all other devices")?.msg.title).toBe("Account security");
+    expect(messageForLog("warn", "Gold bot: buy signal rejected — max open trades reached")).toBeNull();
+    expect(messageForLog("warn", "Couldn't email a price alert: timeout")).toBeNull();
   });
 });
 
@@ -183,6 +199,20 @@ describe("notifications from the engine's log", () => {
     pushed.length = 0;
     await log("info", "Bot started", { user_id: ann.id });
     expect(pushed).toHaveLength(0);
+  });
+
+  it("the same problem notifies once per half hour, and only devices that want problems", async () => {
+    const ann = await createUser({ email: "ann@example.com", password: "a long password" });
+    await device(ann.id, `${FCM}/phone001`);
+    await device(ann.id, `${FCM}/laptop01`, { alerts: true, trades: true, problems: false } as never);
+    await log("error", "Engine error: Deriv timeout", { user_id: ann.id });
+    await log("error", "Engine error: Deriv timeout", { user_id: ann.id }); // next minute, same thing
+    expect(pushed.map((p) => p.endpoint)).toEqual([`${FCM}/phone001`]);
+    expect(pushed[0]!.payload).toMatchObject({ title: "Needs your attention", body: "Engine error: Deriv timeout" });
+    await log("error", "Engine error: something else", { user_id: ann.id });
+    expect(pushed).toHaveLength(2);
+    await log("warn", "Gold bot: sell signal rejected — Risk Guard", { user_id: ann.id });
+    expect(pushed).toHaveLength(2);
   });
 
   it("forgets devices the push service says are gone, and never throws", async () => {

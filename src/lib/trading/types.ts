@@ -266,6 +266,8 @@ export interface MarketsState {
 export interface PushTopics {
   alerts: boolean;
   trades: boolean;
+  /** Bots paused or failing, refused orders, the kill switch, and account security events. */
+  problems?: boolean;
 }
 
 /** One browser or phone that receives push notifications (Web Push). */

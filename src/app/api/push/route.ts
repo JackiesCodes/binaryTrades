@@ -21,7 +21,7 @@ export const GET = withUser(async (user) => {
   return NextResponse.json({ enabled: pushEnabled(), public_key: pushPublicKey(), devices: devices.map(view) });
 });
 
-const topics = z.object({ alerts: z.boolean(), trades: z.boolean() }).strict();
+const topics = z.object({ alerts: z.boolean(), trades: z.boolean(), problems: z.boolean().optional() }).strict();
 const subscribeSchema = z
   .object({
     subscription: z.object({
@@ -47,7 +47,7 @@ export const POST = withUser(async (user, request) => {
     endpoint: subscription.endpoint,
     p256dh: subscription.keys.p256dh,
     auth: subscription.keys.auth,
-    topics: chosen ?? (existing?.user_id === user.id ? existing.topics : { alerts: true, trades: true }),
+    topics: chosen ?? (existing?.user_id === user.id ? existing.topics : { alerts: true, trades: true, problems: true }),
     label: deviceLabel(request.headers.get("user-agent")),
     created_at: existing?.user_id === user.id ? existing.created_at : nowIso(),
     last_sent_at: null,

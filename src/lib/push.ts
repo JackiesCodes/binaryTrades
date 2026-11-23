@@ -17,6 +17,8 @@ import type { EventLog, PushDevice, PushTopics } from "@/lib/trading/types";
 
 export const MAX_DEVICES_PER_USER = 10;
 
+const NOTIFYING = new Set<EventLog["level"]>(["alert", "trade", "error", "warn"]);
+
 export interface VapidKeys {
   publicKey: string;
   privateKey: string;
@@ -77,8 +79,22 @@ export function messageForLog(level: EventLog["level"], message: string, botName
       msg: { title: closed ? "Trade closed" : "Trade opened", body: `${who}${message}`, url: "/dashboard/trades" },
     };
   }
+  if (level === "error" || level === "warn") {
+    if (SECURITY.test(message)) return { topic: "problems", msg: { title: "Account security", body: message, url: "/dashboard/account" } };
+    if (/^KILL SWITCH/.test(message)) return { topic: "problems", msg: { title: "Kill switch on", body: message.replace(/^KILL SWITCH:\s*/, ""), url: "/dashboard/risk" } };
+    // Every error needs a look; of the warnings only bots being paused and unconfirmed MT5 orders.
+    // (Routine rejected signals and other warnings stay in Alerts & Logs.)
+    if (level === "error" || /\bpaused\b|not confirmed/i.test(message)) {
+      return { topic: "problems", msg: { title: "Needs your attention", body: message, url: "/dashboard/logs" } };
+    }
+  }
   return null;
 }
+
+const SECURITY = /^(Password changed|Password reset|Signed out all other devices)/;
+
+/** The same problem notifies at most once in this window, however often the engine logs it. */
+export const PROBLEM_REPEAT_MS = 30 * 60_000;
 
 let configuredWith: string | null = null;
 function configure() {
@@ -143,7 +159,7 @@ export async function sendPush(
   return sent;
 }
 
-/** Called for every log line: alerts and trades become notifications on the user's devices. */
+/** Called for every log line: alerts, trades and problems become notifications on the user's devices. */
 export async function pushForLog(
   level: EventLog["level"],
   message: string,
@@ -151,10 +167,19 @@ export async function pushForLog(
   botId: string | null | undefined,
   store: Store,
 ): Promise<void> {
-  if (!userId || (level !== "alert" && level !== "trade")) return;
+  if (!userId || !NOTIFYING.has(level)) return;
   if (!pushEnabled()) return;
   let botName: string | null = null;
-  if (botId) botName = (await store.bots.get(botId).catch(() => null))?.name ?? null;
+  if (botId && level === "trade") botName = (await store.bots.get(botId).catch(() => null))?.name ?? null;
   const n = messageForLog(level, message, botName);
-  if (n) await sendPush(userId, n.topic, n.msg, { store });
+  if (!n) return;
+  if (n.topic === "problems") {
+    // This line is already in the log: an earlier identical one in the window means we've told them.
+    const since = new Date(Date.now() - PROBLEM_REPEAT_MS).toISOString();
+    const same = await store.logs
+      .all({ eq: { user_id: userId, message } as Partial<EventLog>, since: { field: "created_at", value: since }, limit: 2 })
+      .catch(() => []);
+    if (same.length > 1) return;
+  }
+  await sendPush(userId, n.topic, n.msg, { store });
 }

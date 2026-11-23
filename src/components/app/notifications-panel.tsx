@@ -57,6 +57,7 @@ async function registration(): Promise<ServiceWorkerRegistration> {
 const TOPICS: Array<{ key: keyof PushTopics; label: string; about: string }> = [
   { key: "alerts", label: "Price alerts", about: "When a price alert on the Markets page is reached" },
   { key: "trades", label: "Trades", about: "When a bot opens or closes a trade" },
+  { key: "problems", label: "Problems", about: "A bot paused or failing, a refused order, the kill switch, or a security change on your account" },
 ];
 
 /** Turn push notifications on for this phone or computer, choose what they're about, manage devices. */
@@ -185,8 +186,8 @@ export function NotificationsPanel() {
       }
     >
       <p className="mb-3 text-sm text-muted-foreground">
-        Get a notification on this phone or computer when a price alert is reached or a bot opens or closes a trade, even when binaryTrades
-        isn&apos;t open.
+        Get a notification on this phone or computer when a price alert is reached, a bot opens or closes a trade, or something needs your
+        attention, even when binaryTrades isn&apos;t open.
       </p>
 
       {!info || support === "checking" ? (
