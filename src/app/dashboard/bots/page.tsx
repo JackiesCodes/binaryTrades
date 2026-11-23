@@ -167,7 +167,7 @@ function BotRow({ bot }: { bot: Bot }) {
           onClick={() => patch({ status: runningNow ? "paused" : "running" }, runningNow ? "Bot paused" : "Bot started")}
           disabled={busy}
           className={cn(
-            "flex items-center gap-1.5 rounded-lg p-1.5 hover:bg-white/[0.06] hover:text-ivory disabled:opacity-40",
+            "flex items-center gap-1.5 rounded-lg p-1.5 max-lg:min-h-10 max-lg:px-3 hover:bg-white/[0.06] hover:text-ivory disabled:opacity-40",
             !runningNow && "text-profit",
           )}
           aria-label={runningNow ? "Pause bot" : "Start bot"}
@@ -178,7 +178,7 @@ function BotRow({ bot }: { bot: Bot }) {
         </button>
         <Link
           href={`/dashboard/bots/${bot.id}`}
-          className="flex items-center gap-1.5 rounded-lg p-1.5 hover:bg-white/[0.06] hover:text-ivory"
+          className="flex items-center gap-1.5 rounded-lg p-1.5 max-lg:min-h-10 max-lg:px-3 hover:bg-white/[0.06] hover:text-ivory"
           aria-label="Open bot"
           title="Open bot"
         >

@@ -235,7 +235,7 @@ const chip = "inline-flex h-10 items-center gap-2 rounded-xl bg-panel px-3.5 tex
 
 function Logo() {
   return (
-    <Link href="/dashboard" className="flex shrink-0 items-center gap-2 text-base lg:w-[170px] lg:text-lg">
+    <Link href="/dashboard" className="flex min-h-10 min-w-10 shrink-0 items-center gap-2 text-base lg:w-[170px] lg:text-lg">
       <BrandMark />
       {/* Phones: just the mark, so search and the alerts bell fit in the top bar. */}
       <span className="hidden sm:inline">

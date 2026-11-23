@@ -136,7 +136,7 @@ export default function OverviewPage() {
           <div className="h-px bg-white/[0.06]" />
           <div className="flex items-center justify-between">
             <AsideTitle icon={ShieldCheck}>Risk Guard</AsideTitle>
-            <Link href="/dashboard/risk" className="text-xs text-muted-foreground hover:text-profit">
+            <Link href="/dashboard/risk" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-profit max-lg:-my-3 max-lg:min-h-10">
               Edit →
             </Link>
           </div>
@@ -186,7 +186,7 @@ export default function OverviewPage() {
             { value: "recent", label: "Recent trades" },
           ]}
         />
-        <Link href="/dashboard/trades" className="text-xs text-muted-foreground hover:text-profit">
+        <Link href="/dashboard/trades" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-profit max-lg:-my-3 max-lg:min-h-10">
           All trades →
         </Link>
       </div>

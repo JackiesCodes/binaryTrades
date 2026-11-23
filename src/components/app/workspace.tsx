@@ -171,7 +171,7 @@ export function Switcher<T extends string>({
             aria-selected={on}
             onClick={() => onChange(o.value)}
             className={cn(
-              "truncate rounded-[9px] px-2 py-2 font-medium transition-colors max-[359px]:px-1 max-[359px]:text-xs",
+              "truncate rounded-[9px] px-2 py-2 font-medium max-lg:min-h-10 transition-colors max-[359px]:px-1 max-[359px]:text-xs",
               on
                 ? o.tone === "gold"
                   ? "bg-gold text-ink"
@@ -203,7 +203,7 @@ export function RangePills<T extends string>({ value, options, onChange }: { val
           onClick={() => onChange(o)}
           className={cn(
             // Taller on phones and tablets so they're easy to tap.
-            "rounded-full border px-2.5 py-0.5 text-[11px] font-medium max-lg:min-h-[30px] max-lg:px-3",
+            "rounded-full border px-2.5 py-0.5 text-[11px] font-medium max-lg:min-h-10 max-lg:px-3.5 max-lg:text-xs",
             o === value ? "border-profit bg-profit text-ink" : "border-white/10 text-muted-foreground hover:text-ivory",
           )}
         >
@@ -356,12 +356,12 @@ export function PositionCard({ trade: t, onChart }: { trade: Trade; onChart?: (t
 
       <div className="flex gap-1 text-muted-foreground md:flex-col">
         {onChart && (
-          <button onClick={() => onChart(t)} className="rounded-lg p-1.5 hover:bg-white/[0.06] hover:text-ivory" aria-label="Show on chart" title="Show on chart">
+          <button onClick={() => onChart(t)} className="inline-flex items-center justify-center rounded-lg p-1.5 max-lg:h-10 max-lg:w-10 hover:bg-white/[0.06] hover:text-ivory" aria-label="Show on chart" title="Show on chart">
             <LineChart className="h-4 w-4" />
           </button>
         )}
         {bot && (
-          <Link href={`/dashboard/bots/${bot.id}`} className="rounded-lg p-1.5 hover:bg-white/[0.06] hover:text-ivory" aria-label="Open bot" title="Open bot">
+          <Link href={`/dashboard/bots/${bot.id}`} className="inline-flex items-center justify-center rounded-lg p-1.5 max-lg:h-10 max-lg:w-10 hover:bg-white/[0.06] hover:text-ivory" aria-label="Open bot" title="Open bot">
             <ExternalLink className="h-4 w-4" />
           </Link>
         )}
@@ -369,7 +369,7 @@ export function PositionCard({ trade: t, onChart }: { trade: Trade; onChart?: (t
           <button
             onClick={close}
             disabled={closing || Boolean(t.close_reason)}
-            className="rounded-lg p-1.5 hover:bg-loss/10 hover:text-loss disabled:opacity-40"
+            className="inline-flex items-center justify-center rounded-lg p-1.5 max-lg:h-10 max-lg:w-10 hover:bg-loss/10 hover:text-loss disabled:opacity-40"
             aria-label="Close position"
             title="Close position"
           >

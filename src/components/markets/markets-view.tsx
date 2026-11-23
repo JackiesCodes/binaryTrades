@@ -509,7 +509,7 @@ export function MarketsView() {
                 title={t.label}
                 onClick={() => setTool(on ? null : t.id)}
                 className={cn(
-                  "inline-flex h-8 w-9 items-center justify-center rounded-md",
+                  "inline-flex h-8 w-9 items-center justify-center rounded-md max-lg:h-10 max-lg:w-10",
                   on ? "bg-[var(--mk-accent)] text-[var(--mk-bg)]" : "text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
                 )}
               >
@@ -531,7 +531,7 @@ export function MarketsView() {
                 });
                 if (ok) changeDrawings([]);
               }}
-              className="inline-flex h-8 w-9 items-center justify-center rounded-md text-[var(--mk-muted)] hover:text-[var(--mk-down)]"
+              className="inline-flex h-8 w-9 items-center justify-center rounded-md max-lg:h-10 max-lg:w-10 text-[var(--mk-muted)] hover:text-[var(--mk-down)]"
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -787,7 +787,7 @@ export function MarketsView() {
           Keys: 1–7 timeframe · / search · I indicators · A alerts · W watchlist · T theme · Esc cancel drawing · Del delete drawing
         </span>
         <a
-          className="ml-auto underline-offset-2 hover:text-[var(--mk-text)] hover:underline"
+          className="ml-auto inline-flex items-center underline-offset-2 max-lg:-my-3 max-lg:min-h-10 hover:text-[var(--mk-text)] hover:underline"
           href="https://www.tradingview.com/"
           target="_blank"
           rel="noopener noreferrer"

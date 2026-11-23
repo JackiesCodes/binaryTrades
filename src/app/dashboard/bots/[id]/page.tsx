@@ -94,8 +94,8 @@ function BotView({ bot }: { bot: Bot }) {
           title={bot.name}
           sub={`${kind.label} · ${runningNow ? "Running" : "Paused"}`}
           action={
-            <Link href="/dashboard/bots" className="text-xs text-muted-foreground hover:text-profit">
-              <ArrowLeft className="inline h-3.5 w-3.5" /> Bots
+            <Link href="/dashboard/bots" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-profit max-lg:-my-3 max-lg:min-h-10">
+              <ArrowLeft className="h-3.5 w-3.5" /> Bots
             </Link>
           }
           stats={[

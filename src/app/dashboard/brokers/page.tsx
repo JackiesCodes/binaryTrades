@@ -154,11 +154,11 @@ function BrokerRow({ broker, onReconnect }: { broker: PublicBroker; onReconnect:
       </div>
       <div className="flex gap-1 text-muted-foreground md:flex-col">
         {broker.kind === "deriv" && (
-          <button onClick={() => act("POST")} disabled={busy} className="rounded-lg p-1.5 hover:bg-white/[0.06] hover:text-ivory" aria-label="Sync now" title="Sync now">
+          <button onClick={() => act("POST")} disabled={busy} className="inline-flex items-center justify-center rounded-lg p-1.5 max-lg:h-10 max-lg:w-10 hover:bg-white/[0.06] hover:text-ivory" aria-label="Sync now" title="Sync now">
             <RefreshCw className="h-4 w-4" />
           </button>
         )}
-        <button onClick={() => act("DELETE")} disabled={busy} className="rounded-lg p-1.5 hover:bg-loss/10 hover:text-loss" aria-label="Disconnect" title="Disconnect">
+        <button onClick={() => act("DELETE")} disabled={busy} className="inline-flex items-center justify-center rounded-lg p-1.5 max-lg:h-10 max-lg:w-10 hover:bg-loss/10 hover:text-loss" aria-label="Disconnect" title="Disconnect">
           <Trash2 className="h-4 w-4" />
         </button>
       </div>

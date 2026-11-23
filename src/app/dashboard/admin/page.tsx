@@ -137,8 +137,8 @@ export default function AdminPage() {
                 onClick={() => setFilter(f.value)}
                 className={
                   filter === f.value
-                    ? "truncate rounded-[9px] bg-profit px-2 py-2 font-semibold text-ink"
-                    : "truncate rounded-[9px] px-2 py-2 font-medium text-muted-foreground hover:text-ivory"
+                    ? "truncate rounded-[9px] max-lg:min-h-10 bg-profit px-2 py-2 font-semibold text-ink"
+                    : "truncate rounded-[9px] max-lg:min-h-10 px-2 py-2 font-medium text-muted-foreground hover:text-ivory"
                 }
               >
                 {f.label} {count(f.value)}

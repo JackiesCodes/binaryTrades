@@ -108,7 +108,7 @@ export function Segmented<T extends string>({
           aria-selected={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            "flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 capitalize transition-colors sm:px-4",
+            "flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 capitalize max-lg:min-h-10 transition-colors sm:px-4",
             value === o.value ? o.activeClass ?? "bg-profit text-ink" : "text-muted-foreground hover:text-foreground",
           )}
         >

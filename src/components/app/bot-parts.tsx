@@ -413,7 +413,7 @@ export function RiskField({ value, onChange, currency = "USD" }: { value: RiskVa
               aria-pressed={value.mode === m}
               onClick={() => onChange({ ...value, mode: m })}
               className={cn(
-                "min-h-7 rounded-md px-2.5 font-medium",
+                "min-h-7 rounded-md px-2.5 font-medium max-lg:min-h-10 max-lg:px-3 max-lg:text-xs",
                 value.mode === m ? "bg-white/[0.1] text-ivory" : "text-muted-foreground hover:text-ivory",
               )}
             >
