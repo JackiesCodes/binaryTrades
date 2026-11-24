@@ -51,7 +51,7 @@ export function TradingHoursField({ value, onChange }: { value: TradingHours | n
                 <span className="text-xs text-muted-foreground">{k === "from" ? "From" : "Until"}</span>
                 <select
                   className={selectClass}
-                  value={k === "to" && value.to === 0 && value.from !== 0 ? 24 : value[k]}
+                  value={k === "to" && value.to === 0 ? 24 : value[k]}
                   onChange={(e) => onChange({ ...value, [k]: Number(e.target.value) % 24 })}
                 >
                   {Array.from({ length: k === "from" ? 24 : 25 }, (_, h) => h)

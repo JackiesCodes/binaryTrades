@@ -243,3 +243,15 @@ describe("notifications from the engine's log", () => {
     expect(pushed).toHaveLength(0);
   });
 });
+
+describe("a broken notification never breaks trading", () => {
+  it("log() still resolves when the push code throws", async () => {
+    const ann = await createUser({ email: "ann@example.com", password: "a long password" });
+    const spy = vi.spyOn(getStore().push_devices, "all").mockImplementation(() => {
+      throw new Error("boom"); // synchronous throw, past the usual async error handling
+    });
+    await expect(log("trade", "DERIV BUY frxXAUUSD", { user_id: ann.id })).resolves.toBeUndefined();
+    expect((await getStore().logs.all()).some((l) => l.message === "DERIV BUY frxXAUUSD")).toBe(true);
+    spy.mockRestore();
+  });
+});

@@ -492,7 +492,13 @@ export async function log(
   });
   // Price alerts, trades and problems also go to the user's phone (if they turned notifications on).
   if (level !== "info" && extra.user_id && (process.env.VAPID_PRIVATE_KEY || process.env.SESSION_SECRET)) {
-    const { pushForLog } = await import("@/lib/push");
-    await pushForLog(level, message, extra.user_id, extra.bot_id, store);
+    // Log lines are written in the middle of opening and closing trades: a notification must never
+    // be able to interrupt that, whatever goes wrong with it.
+    try {
+      const { pushForLog } = await import("@/lib/push");
+      await pushForLog(level, message, extra.user_id, extra.bot_id, store);
+    } catch (error) {
+      console.warn(`[push] skipped: ${(error as Error).message}`);
+    }
   }
 }
