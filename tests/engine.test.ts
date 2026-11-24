@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ingestMt5Report, type Mt5Report } from "@/lib/brokers/mt5";
 import { encryptSecret } from "@/lib/secrets";
-import { activeTrades, alertTrade, bookEquity, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
+import { activeTrades, alertTrade, bookEquity, clearCandleCache, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
 import { forUser, getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
 import type { Bot, BrokerAccount, Challenge } from "@/lib/trading/types";
 
@@ -85,6 +85,7 @@ beforeEach(() => {
   process.env.DATA_FILE = join(mkdtempSync(join(tmpdir(), "amogana-")), "store.json");
   delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   resetStore();
+  clearCandleCache();
   price = 1.1;
   derivEquity = {};
   contracts = [];

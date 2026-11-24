@@ -24,7 +24,9 @@ interface DashboardContextValue {
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
 
-const STATE_POLL_MS = 5_000;
+// The engine updates once a minute; your own actions refresh straight away. Every 15 s keeps the
+// screen current without a request every few seconds from every open dashboard.
+const STATE_POLL_MS = 15_000;
 const TICK_MS = 60_000;
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {

@@ -658,7 +658,31 @@ export async function botCandles(bot: Bot, count = 400): Promise<Candle[] | null
       return data.bars.slice(-count).map(([epoch, open, high, low, close]) => ({ epoch, open, high, low, close }));
     }
   }
-  return closedCandles(await deps.candles(bot.data_symbol, bot.timeframe, count), bot.timeframe);
+  return closedCandles(await sharedCandles(bot.data_symbol, bot.timeframe, count), bot.timeframe);
+}
+
+/**
+ * Many users' bots trade the same few markets: within one run (a few seconds), bots on the same
+ * market and timeframe share one download instead of each asking Deriv.
+ */
+const candleCache = new Map<string, { at: number; candles: Promise<Candle[]> }>();
+const CANDLE_CACHE_MS = 15_000;
+
+function sharedCandles(symbol: string, timeframe: number, count: number): Promise<Candle[]> {
+  const key = `${symbol}|${timeframe}|${count}`;
+  const now = Date.now();
+  const hit = candleCache.get(key);
+  if (hit && now - hit.at < CANDLE_CACHE_MS) return hit.candles;
+  for (const [k, v] of candleCache) if (now - v.at >= CANDLE_CACHE_MS) candleCache.delete(k);
+  const candles = deps.candles(symbol, timeframe, count);
+  candleCache.set(key, { at: now, candles });
+  candles.catch(() => candleCache.delete(key)); // a failed download isn't shared
+  return candles;
+}
+
+/** For tests: forget shared downloads. */
+export function clearCandleCache() {
+  candleCache.clear();
 }
 
 export function marketDataId(accountId: string, symbol: string, timeframe: number): string {
@@ -762,16 +786,30 @@ async function doTick(): Promise<TickReport> {
   const report: TickReport = { at: nowIso(), users: 0, bots: {} };
   const active = new Set([...(await store.brokers.all()).map((b) => b.user_id), ...(await store.bots.all()).map((b) => b.user_id)]);
   const disabled = new Set((await store.users.all({ eq: { disabled: true } })).map((u) => u.id));
-  for (const userId of active) {
-    if (disabled.has(userId)) continue;
-    report.users++;
+  const users = [...active].filter((id) => !disabled.has(id));
+  report.users = users.length;
+  // Users run side by side (each mostly waits on Deriv and the database), a few at a time so
+  // neither is flooded; one at a time would run out of the minute at a few dozen users.
+  await forEachLimited(users, TICK_CONCURRENCY, async (userId) => {
     try {
       Object.assign(report.bots, await tickUser(userId));
     } catch (error) {
       await log("error", `Engine error: ${(error as Error).message}`, { user_id: userId });
     }
-  }
+  });
   return report;
+}
+
+/** How many users the every-minute run works on at once. */
+export const TICK_CONCURRENCY = 10;
+
+/** Runs `fn` over `items`, at most `limit` at a time. */
+export async function forEachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 let alertsInFlight: Promise<TickReport["alerts"]> | null = null;
