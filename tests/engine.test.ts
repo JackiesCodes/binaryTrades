@@ -473,14 +473,14 @@ describe("Deriv credentials", () => {
         broker_account_id: demo.id,
         timeframe: 900,
         risk_amount: 25,
-        strategy: { id: "script", params: { stop_distance: 0.0025, reward_ratio: 2, atr_mult: 2, rr: 0 }, code },
+        strategy: { id: "script", params: { stop_distance: 0.0025, reward_ratio: 2.5, atr_mult: 2, rr: 0 }, code },
       });
       await getStore().bots.insert(bot);
       expect(await runBuiltinBot(bot)).toBe("buy");
       const [trade] = await activeTrades(U, { bot_id: bot.id });
       expect(trade).toMatchObject({ side: "buy" });
       expect(trade!.sl).toBeCloseTo(1.1015 - 0.0025, 6);
-      expect(trade!.tp).toBeCloseTo(1.1015 + 0.005, 6);
+      expect(trade!.tp).toBeCloseTo(1.1015 + 0.00625, 6);
 
       // The same setup seen again with the buy still open: hold it, don't close or add.
       await getStore().bots.update(bot.id, { last_bar_epoch: null });

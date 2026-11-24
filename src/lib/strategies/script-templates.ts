@@ -127,10 +127,10 @@ function onBar(i) {
   },
   {
     id: "two_candle_momentum",
-    name: "Two-candle momentum (M15, 1 : 2)",
+    name: "Two-candle momentum (M15, one trade, $20 / $50)",
     description:
-      "Two closed candles the same colour with the newer body bigger: buy (bullish) or sell (bearish). Fixed stop distance, target 2× — set the bot's risk to Fixed $25 for $25 / $50. One trade per bot; run a buys-only and a sells-only bot to hold both.",
-    code: `// Two-Candle Momentum — for 15-minute charts (set the bot's timeframe to M15).
+      "One bot, both directions, one trade at a time. Two closed candles the same colour with the newer body bigger: buy (bullish) or sell (bearish). A new trade only after the open one hits its stop or target. Stop 20 away, target 50 away — with the bot's risk at Fixed $20 that's the minimum 0.01 lot on gold: lose $20 or win $50.",
+    code: `// Two-Candle Momentum — one bot, both directions, one trade at a time (bot timeframe: M15).
 //
 // On every closed candle it compares the last two closed candles:
 //   • both bullish (close > open) and the newer body is bigger → BUY
@@ -138,24 +138,25 @@ function onBar(i) {
 //   • anything else (mixed colours, a doji, or the newer body not bigger) → no trade
 // Body = |close − open|; wicks are ignored. The candle still forming is never used.
 //
-// Stop and target are fixed distances from the entry, 1 : 2. The money at risk comes from the
-// bot's Risk setting: set it to "Fixed $" 25 and every stop loses $25 and every target wins $50,
-// whatever the position size.
+// Only ONE trade is ever open. While it runs, every new setup (buy or sell) is ignored. As soon as
+// it hits its stop loss or take profit, the bot looks for the next setup in either direction.
+// It never closes a trade early: each trade ends at its stop or its target.
 //
-// One trade per bot. To hold a BUY and a SELL at the same time (like a hedging MT5 account),
-// create two bots from this script: one with direction 1 (buys only), one with direction -1
-// (sells only). direction 0 = one bot trading both ways, one trade at a time.
+// Stop and target are fixed distances from the entry: stop_distance, and stop_distance × reward_ratio.
+// The money comes from the bot's Risk setting. Gold, risk "Fixed $" 20, stop_distance 20,
+// reward_ratio 2.5 → 0.01 lot (the minimum): the stop loses $20, the target wins $50.
+// (Other markets: pick the stop_distance where the minimum size loses $20, e.g. EUR/USD 0.01 lot →
+// 0.02 = 200 pips.)
 //
-// After a stop or target is hit it goes straight back to watching for the next setup. It never
-// closes a trade early: each trade ends at its stop or its target.
+// direction: 0 = both ways (default), 1 = buys only, -1 = sells only.
 
-const direction = input("direction", 1);         // 1 = buys only, -1 = sells only, 0 = both (one at a time)
-const stopInput = input("stop_distance", 2.5);   // price distance to the stop (gold: 2.5 = $2.50; EUR/USD: 0.0025 = 25 pips)
-const rewardInput = input("reward_ratio", 2);    // target = stop distance × this (2 → 1 : 2)
+const direction = input("direction", 0);         // 0 = both ways, one trade at a time · 1 = buys only · -1 = sells only
+const stopInput = input("stop_distance", 20);    // price distance to the stop (gold: 20 → $20 at 0.01 lot)
+const rewardInput = input("reward_ratio", 2.5);  // target = stop distance × this (2.5 → $20 risk : $50 reward)
 
 // Bad settings must never stop the bot (a script error pauses it): fall back to safe values.
-const stopDistance = isFinite(stopInput) && stopInput > 0 ? stopInput : 2.5;
-const rewardRatio = isFinite(rewardInput) && rewardInput > 0 ? rewardInput : 2;
+const stopDistance = isFinite(stopInput) && stopInput > 0 ? stopInput : 20;
+const rewardRatio = isFinite(rewardInput) && rewardInput > 0 ? rewardInput : 2.5;
 const wantBuys = direction >= 0;
 const wantSells = direction <= 0;
 if (stopDistance !== stopInput) console.log("stop_distance must be above 0 — using " + stopDistance);
@@ -203,7 +204,7 @@ function onBar(i) {
   if (signal === "buy" && !wantBuys) { reason = "buy signal, but this bot only sells"; signal = null; }
   if (signal === "sell" && !wantSells) { reason = "sell signal, but this bot only buys"; signal = null; }
   if (signal && trade) {
-    reason = trade.side === signal ? signal + " signal, but a " + signal + " is already open" : signal + " signal, but a " + trade.side + " is open (one trade per bot)";
+    reason = signal + " signal, but a " + trade.side + " is still open (one trade at a time: waits for its stop or target)";
     signal = null;
   }
 

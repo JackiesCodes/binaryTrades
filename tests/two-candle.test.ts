@@ -16,12 +16,12 @@ beforeAll(async () => {
 const candles = (oc: Array<[number, number, number?, number?]>): Candle[] =>
   oc.map(([o, c, hi, lo], i) => ({ epoch: 1_800_000_000 + i * 900, open: o, close: c, high: hi ?? Math.max(o, c) + 0.1, low: lo ?? Math.min(o, c) - 0.1 }));
 
-const P = { stop_distance: 1, reward_ratio: 2 }; // stop 1 away, target 2 away
+const P = { stop_distance: 1, reward_ratio: 2 }; // stop 1 away, target 2 away (default direction 0: both ways)
 
 describe("Two-candle momentum script", () => {
   it("is a valid script with the expected inputs", async () => {
     const run = await checkScript(code);
-    expect(run.inputs).toEqual({ direction: 1, stop_distance: 2.5, reward_ratio: 2 });
+    expect(run.inputs).toEqual({ direction: 0, stop_distance: 20, reward_ratio: 2.5 });
   });
 
   it("buys on two bullish candles with a bigger second body; skips while open; re-enters after the target", () => {
@@ -56,23 +56,25 @@ describe("Two-candle momentum script", () => {
       [99.6, 99.0], // 3 bear 0.6
       [99.0, 98.0], // 4 bear 1.0 → SELL again
     ]);
-    const run = runScript(qjs, code, c, { ...P, direction: -1 });
+    const run = runScript(qjs, code, c, P);
     expect([...run.positions]).toEqual([0, -1, 0, 0, -1]);
     expect(run.levels.get(1)).toMatchObject({ stop: 99.5, target: 96.5, restart: true });
-    // The buys-only default ignores sell setups.
-    expect(runScript(qjs, code, c, P).levels.size).toBe(0);
+    // A buys-only bot ignores sell setups.
+    expect(runScript(qjs, code, c, { ...P, direction: 1 }).levels.size).toBe(0);
   });
 
-  it("direction 0: both ways, one trade at a time (an opposite setup waits)", () => {
+  it("one trade at a time: an opposite setup waits until the open trade hits its stop or target, then the next setup trades", () => {
     const c = candles([
       [100, 100.5], // 0 bull
       [100.5, 101.5], // 1 → BUY (stop 100.5, target 103.5)
       [101.5, 101.2], // 2 bear 0.3
       [101.2, 100.7], // 3 bear 0.5 → sell setup, but the buy is still open (low 100.6 > stop 100.5): wait
+      [100.7, 100.6, 100.75, 100.3], // 4 dips to 100.3: the buy's stop (100.5) is hit; bear 0.1 < 0.5 → no setup
+      [100.6, 100.3], // 5 bear 0.3 > 0.1 → SELL (the buy is gone)
     ]);
-    const run = runScript(qjs, code, c, { ...P, direction: 0 });
-    expect([...run.positions]).toEqual([0, 1, 1, 1]);
-    expect([...run.levels.keys()]).toEqual([1]);
+    const run = runScript(qjs, code, c, P);
+    expect([...run.positions]).toEqual([0, 1, 1, 1, 0, -1]);
+    expect([...run.levels.keys()]).toEqual([1, 5]);
   });
 
   it("live: the trade at the broker decides — never closes or doubles an open trade, re-enters when it's gone", () => {
@@ -84,7 +86,12 @@ describe("Two-candle momentum script", () => {
     const held = runScript(qjs, code, c, P, open);
     expect(held.positions.at(-1)).toBe(1); // keep the open buy…
     expect(held.levels.size).toBe(0); // …and don't open (or restart) another
-    expect(held.logs.at(-1)).toContain("NO TRADE (buy signal, but a buy is already open)");
+    expect(held.logs.at(-1)).toContain("NO TRADE (buy signal, but a buy is still open (one trade at a time: waits for its stop or target))");
+    // A sell setup while a buy is open at the broker: also waits (one trade at a time).
+    const sellSetup = candles([[100, 99.5], [99.5, 98.5]]);
+    const waits = runScript(qjs, code, sellSetup, P, open);
+    expect(waits.positions.at(-1)).toBe(1);
+    expect(waits.levels.size).toBe(0);
 
     const flat: ScriptContext = { live: true, account: null, broker_position: null };
     const enters = runScript(qjs, code, c, P, flat);
@@ -102,10 +109,12 @@ describe("Two-candle momentum script", () => {
   it("bad settings never break it (a script error would pause the bot)", () => {
     const c = candles([[100, 100.5], [100.5, 101.5]]);
     const run = runScript(qjs, code, c, { stop_distance: -5, reward_ratio: 0 });
-    expect(run.levels.get(1)).toMatchObject({ stop: 99, target: 106.5 }); // defaults 2.5 and 2
+    expect(run.levels.get(1)).toMatchObject({ stop: 81.5, target: 151.5 }); // defaults 20 and 2.5
     expect(run.logs.join(" ")).toMatch(/stop_distance must be above 0/);
     // A stop bigger than the price itself: skipped, no error.
     expect(runScript(qjs, code, c, { stop_distance: 500 }).levels.size).toBe(0);
+    // A target that would be below 0 (a sell at a low price): skipped too.
+    expect(runScript(qjs, code, candles([[3, 2.5], [2.5, 1.5]]), { stop_distance: 1, reward_ratio: 2 }).levels.size).toBe(0);
   });
 
   it("backtests on a long series without errors, inside the time budget", async () => {
@@ -117,9 +126,11 @@ describe("Two-candle momentum script", () => {
     });
     const def = await scriptStrategy(code);
     const started = Date.now();
-    const result = runBacktest(long, def, { stop_distance: 2.5, reward_ratio: 2 }, { initialBalance: 10_000, riskPercent: 0.25, costPercent: 0.02, timeframe: 900 });
-    expect(result.trades.length).toBeGreaterThan(20);
-    expect(result.trades.every((t) => t.side === "buy")).toBe(true); // default: buys only
+    const result = runBacktest(long, def, { stop_distance: 4, reward_ratio: 2.5 }, { initialBalance: 10_000, riskPercent: 0.2, costPercent: 0.02, timeframe: 900 });
+    expect(result.trades.length).toBeGreaterThan(5);
+    expect(new Set(result.trades.map((t) => t.side))).toEqual(new Set(["buy", "sell"])); // both ways
+    // Never two at once: each trade opens after the previous one closed.
+    for (let k = 1; k < result.trades.length; k++) expect(result.trades[k]!.entry_epoch).toBeGreaterThanOrEqual(result.trades[k - 1]!.exit_epoch);
     expect(Date.now() - started).toBeLessThan(3000);
   });
 });
