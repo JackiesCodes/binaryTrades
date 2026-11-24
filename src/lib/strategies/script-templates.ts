@@ -126,6 +126,112 @@ function onBar(i) {
 `,
   },
   {
+    id: "two_candle_momentum",
+    name: "Two-candle momentum (M15, 1 : 2)",
+    description:
+      "Two closed candles the same colour with the newer body bigger: buy (bullish) or sell (bearish). Fixed stop distance, target 2× — set the bot's risk to Fixed $25 for $25 / $50. One trade per bot; run a buys-only and a sells-only bot to hold both.",
+    code: `// Two-Candle Momentum — for 15-minute charts (set the bot's timeframe to M15).
+//
+// On every closed candle it compares the last two closed candles:
+//   • both bullish (close > open) and the newer body is bigger → BUY
+//   • both bearish (close < open) and the newer body is bigger → SELL
+//   • anything else (mixed colours, a doji, or the newer body not bigger) → no trade
+// Body = |close − open|; wicks are ignored. The candle still forming is never used.
+//
+// Stop and target are fixed distances from the entry, 1 : 2. The money at risk comes from the
+// bot's Risk setting: set it to "Fixed $" 25 and every stop loses $25 and every target wins $50,
+// whatever the position size.
+//
+// One trade per bot. To hold a BUY and a SELL at the same time (like a hedging MT5 account),
+// create two bots from this script: one with direction 1 (buys only), one with direction -1
+// (sells only). direction 0 = one bot trading both ways, one trade at a time.
+//
+// After a stop or target is hit it goes straight back to watching for the next setup. It never
+// closes a trade early: each trade ends at its stop or its target.
+
+const direction = input("direction", 1);         // 1 = buys only, -1 = sells only, 0 = both (one at a time)
+const stopInput = input("stop_distance", 2.5);   // price distance to the stop (gold: 2.5 = $2.50; EUR/USD: 0.0025 = 25 pips)
+const rewardInput = input("reward_ratio", 2);    // target = stop distance × this (2 → 1 : 2)
+
+// Bad settings must never stop the bot (a script error pauses it): fall back to safe values.
+const stopDistance = isFinite(stopInput) && stopInput > 0 ? stopInput : 2.5;
+const rewardRatio = isFinite(rewardInput) && rewardInput > 0 ? rewardInput : 2;
+const wantBuys = direction >= 0;
+const wantSells = direction <= 0;
+if (stopDistance !== stopInput) console.log("stop_distance must be above 0 — using " + stopDistance);
+if (rewardRatio !== rewardInput) console.log("reward_ratio must be above 0 — using " + rewardRatio);
+
+function kind(k) {
+  if (!isFinite(open[k]) || !isFinite(close[k])) return "none";
+  return close[k] > open[k] ? "bull" : close[k] < open[k] ? "bear" : "doji";
+}
+const body = (k) => Math.abs(close[k] - open[k]);
+
+// The script follows its own trade candle by candle (stop / target hit or not), so backtests
+// match live trading. Live, the trade at the broker is the final word on the latest candle.
+let trade = null; // { side: "buy" | "sell", entryIndex, stop, target }
+
+function updateTrade(i) {
+  if (!trade || trade.entryIndex >= i) return;
+  // Checked like the backtester: the stop first when a candle touches both.
+  const hitStop = trade.side === "buy" ? low[i] <= trade.stop : high[i] >= trade.stop;
+  const hitTarget = trade.side === "buy" ? high[i] >= trade.target : low[i] <= trade.target;
+  if (hitStop || hitTarget) trade = null;
+}
+
+function onBar(i) {
+  updateTrade(i);
+  const latestLive = live && i === bars.length - 1;
+  if (latestLive) {
+    // The broker knows best whether a trade is still open (fills, slippage, gaps).
+    trade = brokerPosition ? { side: brokerPosition.side, entryIndex: i, stop: NaN, target: NaN } : null;
+  }
+  if (i < 1) return;
+
+  const k1 = kind(i - 1);
+  const k2 = kind(i);
+  const b1 = body(i - 1);
+  const b2 = body(i);
+  let signal = null;
+  let reason = "";
+  if (k1 === "bull" && k2 === "bull" && b2 > b1) signal = "buy";
+  else if (k1 === "bear" && k2 === "bear" && b2 > b1) signal = "sell";
+  else if (k1 === "doji" || k2 === "doji") reason = "a doji";
+  else if (k1 !== k2) reason = "mixed colours";
+  else reason = "candle 2 body not bigger";
+
+  if (signal === "buy" && !wantBuys) { reason = "buy signal, but this bot only sells"; signal = null; }
+  if (signal === "sell" && !wantSells) { reason = "sell signal, but this bot only buys"; signal = null; }
+  if (signal && trade) {
+    reason = trade.side === signal ? signal + " signal, but a " + signal + " is already open" : signal + " signal, but a " + trade.side + " is open (one trade per bot)";
+    signal = null;
+  }
+
+  if (latestLive) {
+    console.log(
+      new Date(time[i] * 1000).toISOString() + " · candle 1 " + k1 + " body " + b1.toFixed(5) + " · candle 2 " + k2 + " body " + b2.toFixed(5) +
+        " · " + (signal ? signal.toUpperCase() : "NO TRADE (" + reason + ")"),
+    );
+  }
+
+  if (signal) {
+    const entry = close[i]; // the next candle opens here (live: the current price)
+    const dir = signal === "buy" ? 1 : -1;
+    const stop = entry - dir * stopDistance;
+    const target = entry + dir * stopDistance * rewardRatio;
+    if (!(stop > 0) || !(target > 0)) return trade ? undefined : "close"; // distance too big for this price
+    trade = { side: signal, entryIndex: i, stop, target };
+    if (latestLive) console.log("  stop " + stop.toFixed(5) + " · target " + target.toFixed(5));
+    // restart: a fresh trade even when the last one in this direction just ended.
+    return { action: signal, stop, target, restart: true };
+  }
+  // Keep an open trade exactly as it is (it ends at its stop or target); otherwise stay flat.
+  if (trade) return trade.side;
+  return "close";
+}
+`,
+  },
+  {
     id: "blank",
     name: "Blank script",
     description: "Start from scratch.",

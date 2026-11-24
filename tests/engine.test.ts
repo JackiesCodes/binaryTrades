@@ -455,6 +455,44 @@ describe("Deriv credentials", () => {
     }
   });
 
+  it("two-candle momentum template: one buy with its own stop / target, then holds it (no close, no second buy)", async () => {
+    const { SCRIPT_TEMPLATES } = await import("@/lib/strategies/script-templates");
+    const code = SCRIPT_TEMPLATES.find((t) => t.id === "two_candle_momentum")!.code;
+    const saved = deps.candles;
+    // 250 dojis (no setups), then two bullish candles, the newer body bigger.
+    deps.candles = async (_s, g, count) => {
+      const now = Math.floor(Date.now() / 1000 / g) * g;
+      const out = Array.from({ length: count }, (_, i) => ({ epoch: now - (count - i) * g, open: 1.1, high: 1.1005, low: 1.0995, close: 1.1 }));
+      out[count - 2] = { ...out[count - 2]!, open: 1.1, close: 1.1005, high: 1.1006, low: 1.0999 }; // body 0.0005
+      out[count - 1] = { ...out[count - 1]!, open: 1.1005, close: 1.1015, high: 1.1016, low: 1.1004 }; // body 0.0010
+      return out;
+    };
+    try {
+      const demo = await derivAccount("t2c", true, 1000);
+      const bot = makeBot({
+        broker_account_id: demo.id,
+        timeframe: 900,
+        risk_amount: 25,
+        strategy: { id: "script", params: { stop_distance: 0.0025, reward_ratio: 2, atr_mult: 2, rr: 0 }, code },
+      });
+      await getStore().bots.insert(bot);
+      expect(await runBuiltinBot(bot)).toBe("buy");
+      const [trade] = await activeTrades(U, { bot_id: bot.id });
+      expect(trade).toMatchObject({ side: "buy" });
+      expect(trade!.sl).toBeCloseTo(1.1015 - 0.0025, 6);
+      expect(trade!.tp).toBeCloseTo(1.1015 + 0.005, 6);
+
+      // The same setup seen again with the buy still open: hold it, don't close or add.
+      await getStore().bots.update(bot.id, { last_bar_epoch: null });
+      expect(await runBuiltinBot((await getStore().bots.get(bot.id))!)).toBe("hold: in a buy trade");
+      const open = await activeTrades(U, { bot_id: bot.id });
+      expect(open.map((t) => t.id)).toEqual([trade!.id]);
+      expect(contracts.filter((c) => c.sold)).toHaveLength(0);
+    } finally {
+      deps.candles = saved;
+    }
+  });
+
   it("runs script bots, and pauses one whose script breaks", async () => {
     const demo = await derivAccount("demo-token", true, 1000);
     const bot = makeBot({
