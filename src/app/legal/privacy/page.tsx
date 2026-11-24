@@ -23,24 +23,35 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Trading activity:</strong> the bots, scripts and settings you create, the signals received, the orders placed and their results,
-          equity history and activity logs.
+          equity history and activity logs, and the Markets page&apos;s watchlist, drawings, indicators and price alerts.
+        </li>
+        <li>
+          <strong>Notifications (only if you turn them on):</strong> for each phone or computer, the push address its browser gives us, its
+          encryption keys, its time zone (for the evening summary), a label such as &ldquo;Chrome on Android&rdquo; and which notifications it
+          wants. Turning notifications off on a device deletes these.
         </li>
         <li>
           <strong>Technical data:</strong> IP addresses and request information processed by our hosting provider for security and to keep the
-          Service running.
+          Service running. When someone fails to sign in to your account, we record the attempt and the IP address it came from and show it
+          to you in Alerts &amp; Logs. If the app hits an error in your browser, we receive the error message and the page it happened on.
         </li>
       </ul>
 
       <h2>How we use it</h2>
       <ul>
-        <li>To provide the Service: run your bots, place your orders, show your dashboard and send account emails (confirmations and password resets).</li>
+        <li>
+          To provide the Service: run your bots, place your orders, show your dashboard, send account emails (confirmations, password resets and
+          the price-alert emails you choose) and the notifications you turn on.
+        </li>
         <li>To keep the Service secure: rate limits, abuse prevention and investigating problems.</li>
         <li>We don&apos;t sell your data, and we don&apos;t use it for advertising.</li>
       </ul>
 
       <h2>Who processes it</h2>
       <p>
-        We use service providers to run binaryTrades: hosting (Vercel), a database (Supabase), and an email provider for account emails. Your
+        We use service providers to run binaryTrades: hosting (Vercel), a database (Supabase), an email provider for account emails (Resend), and
+        your browser&apos;s push service (such as Google, Apple, Mozilla or Microsoft) to deliver notifications, which only sees the
+        notification it delivers. Market prices on the Markets page come straight from Deriv and Binance to your browser. Your
         orders and account requests go to the brokers you connect (such as Deriv or your MT5 broker), and TradingView sends us the alerts you
         configure. Each provider handles data under its own privacy terms.
       </p>

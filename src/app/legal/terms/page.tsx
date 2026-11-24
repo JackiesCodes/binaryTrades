@@ -74,6 +74,11 @@ export default function TermsPage() {
         The Service is in beta and is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo;, without warranties of any kind, including that it
         will be uninterrupted, error-free or profitable. Features may change or be withdrawn.
       </p>
+      <p>
+        Notifications, emails and price alerts are a convenience: they can arrive late or not at all (for example when your phone is offline or a
+        delivery service is down). Don&apos;t rely on them alone to watch open positions; use your broker&apos;s own stop-loss and check your
+        account.
+      </p>
 
       <h2>8. Limitation of liability</h2>
       <p>

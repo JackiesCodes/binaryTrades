@@ -26,6 +26,7 @@ export const metadata: Metadata = {
     siteName: "binaryTrades",
     type: "website",
   },
+  twitter: { card: "summary_large_image" },
   applicationName: "binaryTrades",
   appleWebApp: { capable: true, title: "binaryTrades", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },
