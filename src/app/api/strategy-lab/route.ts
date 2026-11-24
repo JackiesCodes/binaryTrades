@@ -6,6 +6,7 @@ import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { defaultParams, getStrategy } from "@/lib/strategies";
 import { optimise, runBacktest } from "@/lib/strategies/backtest";
+import { inTradingHours, sanitizeHours } from "@/lib/trading/hours";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,6 +21,8 @@ const schema = z.object({
   risk_percent: z.coerce.number().min(0.1).max(5).default(1),
   cost_percent: z.coerce.number().min(0).max(1).default(0.02),
   initial_balance: z.coerce.number().min(100).default(10000),
+  /** Only open trades in these hours (a bot's "Only trade during set hours"); backtest only. */
+  trading_hours: z.unknown().optional(),
 });
 
 export const POST = withUser(async (_user, request) => {
@@ -50,6 +53,17 @@ export const POST = withUser(async (_user, request) => {
   const def = getStrategy(input.strategy_id ?? "");
   if (!def) return jsonError(400, "UNKNOWN_STRATEGY");
   const params = { ...defaultParams(def), ...input.params };
-  const result = runBacktest(candles, def, params, options);
-  return NextResponse.json({ range, params, ...result, trades: result.trades.slice(-200) });
+  const hours = input.trading_hours === undefined || input.trading_hours === null ? null : sanitizeHours(input.trading_hours);
+  if (input.trading_hours && !hours) return jsonError(400, "BAD_TRADING_HOURS");
+  const result = runBacktest(candles, def, params, hours ? { ...options, canOpen: (epoch) => inTradingHours(hours, new Date(epoch * 1000)) } : options);
+  return NextResponse.json({
+    range,
+    params,
+    ...result,
+    trades: result.trades.slice(-200),
+    // Every trade's open time and result, for the by-hour and by-weekday charts.
+    trade_times: result.trades.map((t) => [t.entry_epoch, Math.round(t.pnl * 100) / 100]),
+    // With hours set, the same test without them, for a side-by-side comparison.
+    ...(hours ? { hours, baseline: runBacktest(candles, def, params, options).metrics } : {}),
+  });
 });

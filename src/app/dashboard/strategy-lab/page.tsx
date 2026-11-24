@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { FlaskConical, Plus, Trophy } from "lucide-react";
 
 import { EquityChart } from "@/components/app/equity-chart";
+import { DAY_LABELS, DAY_ORDER, HOUR_LABELS, PnlBars, browserZone } from "@/components/app/pnl-bars";
+import { TradingHoursField } from "@/components/app/trading-hours-field";
 import { EmptyState, Field, MetricsGrid, Panel, selectClass } from "@/components/app/widgets";
 import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +15,17 @@ import { Input } from "@/components/ui/input";
 import { api, money, pct, pnlClass, price } from "@/lib/client";
 import { STRATEGIES, defaultParams, getStrategy } from "@/lib/strategies";
 import type { BacktestMetrics, BacktestResult, BacktestTrade, OptimiseEntry } from "@/lib/strategies/backtest";
+import { hoursLabel, type TradingHours } from "@/lib/trading/hours";
+import { byTimeOfDay } from "@/lib/trading/performance";
 import { DATA_SYMBOLS, TIMEFRAMES, timeframeLabel } from "@/lib/trading/symbols";
 import { cn } from "@/lib/utils";
+
+/** Extra fields of a single backtest: every trade's [open epoch, P&L], and the no-hours run when hours were set. */
+interface SingleExtras {
+  trade_times: Array<[number, number]>;
+  hours?: TradingHours;
+  baseline?: BacktestMetrics;
+}
 
 interface Range {
   from: number;
@@ -55,7 +66,10 @@ export default function StrategyLabPage() {
   const [error, setError] = useState<string | null>(null);
   const [board, setBoard] = useState<{ range: Range; leaderboard: OptimiseEntry[]; symbol: string; timeframe: number } | null>(null);
   const [selected, setSelected] = useState(0);
-  const [single, setSingle] = useState<(BacktestResult & { range: Range; symbol: string; timeframe: number; strategyId: string; params: Record<string, number> }) | null>(null);
+  const [single, setSingle] = useState<
+    (BacktestResult & SingleExtras & { range: Range; symbol: string; timeframe: number; strategyId: string; params: Record<string, number> }) | null
+  >(null);
+  const [hours, setHours] = useState<TradingHours | null>(null);
   // Which result the chart and numbers show.
   const [showing, setShowing] = useState<"board" | "single">("board");
   const def = getStrategy(strategyId)!;
@@ -72,7 +86,13 @@ export default function StrategyLabPage() {
         setSelected(0);
         setShowing("board");
       } else {
-        const res = await api<BacktestResult & { range: Range }>("/api/strategy-lab", "POST", { action, ...common, strategy_id: strategyId, params });
+        const res = await api<BacktestResult & SingleExtras & { range: Range }>("/api/strategy-lab", "POST", {
+          action,
+          ...common,
+          strategy_id: strategyId,
+          params,
+          ...(hours ? { trading_hours: hours } : {}),
+        });
         setSingle({ ...res, symbol: dataSymbol, timeframe, strategyId, params });
         setShowing("single");
       }
@@ -113,6 +133,10 @@ export default function StrategyLabPage() {
             train: null as number | null,
           }
         : null;
+  const when = useMemo(
+    () => (single ? byTimeOfDay(single.trade_times.map(([epoch, pnl]) => ({ side: "buy", pnl, risk_amount: 0, opened_at: new Date(epoch * 1000).toISOString(), closed_at: new Date(epoch * 1000).toISOString() })), browserZone()) : null),
+    [single],
+  );
   const marketLabel = (s: string) => DATA_SYMBOLS.find((d) => d.value === s)?.label ?? s;
 
   return (
@@ -217,6 +241,7 @@ export default function StrategyLabPage() {
                   ))}
                 </div>
                 <p className="text-[11px] text-muted-foreground">{def.description}</p>
+                <TradingHoursField value={hours} onChange={setHours} />
               </FieldBox>
               <Button onClick={() => run("backtest")} disabled={busy !== null} className="h-12 w-full text-[15px] font-bold">
                 <FlaskConical /> {busy === "backtest" ? "Running…" : "Run backtest"}
@@ -266,6 +291,20 @@ export default function StrategyLabPage() {
             <div className="mt-1 truncate text-[11px] text-muted-foreground">{paramText(view.params)}</div>
           </Panel>
           <MetricsGrid m={view.metrics} />
+          {showing === "single" && single?.baseline && single.hours && <HoursComparison hours={single.hours} withHours={single.metrics} allDay={single.baseline} />}
+          {showing === "single" && single && when && single.trade_times.length >= 5 && (
+            <Panel title="When it makes and loses money">
+              <div className="grid gap-3 lg:grid-cols-[3fr_1fr]">
+                <PnlBars title="By hour opened (your time)" buckets={when.hours} labels={HOUR_LABELS} tick={(i) => i % 6 === 0} fmt={(n) => money(n, "USD", true)} />
+                <PnlBars title="By weekday" buckets={DAY_ORDER.map((d) => when.days[d]!)} labels={DAY_LABELS} tick={() => true} fmt={(n) => money(n, "USD", true)} />
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {single.hours
+                  ? `Only trades opened ${hoursLabel(single.hours)} count here.`
+                  : "Clearly red hours or days? Set “Only trade during set hours” in the panel and run it again to compare."}
+              </p>
+            </Panel>
+          )}
         </>
       ) : (
         <Panel>
@@ -379,5 +418,54 @@ export default function StrategyLabPage() {
       )}
       {showing === "single" && !single && <EmptyState>Switch to “Test one” in the panel and run a backtest.</EmptyState>}
     </Workspace>
+  );
+}
+
+/** The same backtest with and without trading hours, side by side. */
+function HoursComparison({ hours, withHours, allDay }: { hours: TradingHours; withHours: BacktestMetrics; allDay: BacktestMetrics }) {
+  const pf = (m: BacktestMetrics) => (m.profit_factor === null ? Infinity : m.profit_factor);
+  const rows: Array<[string, (m: BacktestMetrics) => string, (a: BacktestMetrics, b: BacktestMetrics) => number]> = [
+    ["Return", (m) => pct(m.return_percent, 1, true), (a, b) => a.return_percent - b.return_percent],
+    ["Profit factor", (m) => (m.profit_factor === null ? "∞" : m.profit_factor.toFixed(2)), (a, b) => pf(a) - pf(b)],
+    ["Max drawdown", (m) => pct(-m.max_drawdown_percent), (a, b) => b.max_drawdown_percent - a.max_drawdown_percent],
+    ["Win rate", (m) => pct(m.win_rate, 0), (a, b) => a.win_rate - b.win_rate],
+    ["Trades", (m) => String(m.trades), () => 0],
+  ];
+  const better = withHours.return_percent > allDay.return_percent && pf(withHours) >= pf(allDay);
+  const worse = withHours.return_percent < allDay.return_percent && pf(withHours) <= pf(allDay);
+  return (
+    <Panel title="Trading hours vs all day">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="py-1.5 pr-3 font-medium" />
+              <th className="py-1.5 pr-3 text-right font-medium">{hoursLabel(hours)}</th>
+              <th className="py-1.5 text-right font-medium">All day</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, show, cmp]) => {
+              const d = cmp(withHours, allDay);
+              return (
+                <tr key={label} className="border-t border-white/5">
+                  <td className="py-1.5 pr-3 text-muted-foreground">{label}</td>
+                  <td className={cn("py-1.5 pr-3 text-right font-mono tabular-nums", d > 0 ? "text-profit" : d < 0 ? "text-loss" : "text-ivory")}>{show(withHours)}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums text-ivory">{show(allDay)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {better
+          ? "These hours did better on this history: more return with a profit factor at least as good. Check it holds on another market or timeframe before relying on it."
+          : worse
+            ? "These hours did worse on this history than trading all day."
+            : "Mixed: better on some measures, worse on others. Prefer the one with the higher profit factor and lower drawdown."}{" "}
+        Fewer trades also means each result counts for more, so be wary of small samples.
+      </p>
+    </Panel>
   );
 }

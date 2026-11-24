@@ -11,6 +11,8 @@ export interface BacktestOptions {
   /** Only open trades on bars in [fromIndex, toIndex). Indicators still use earlier bars. */
   fromIndex?: number;
   toIndex?: number;
+  /** Whether a trade may be opened on the bar starting at this epoch (e.g. a bot's trading hours). Closing is always allowed. */
+  canOpen?: (epoch: number) => boolean;
 }
 
 export interface BacktestTrade {
@@ -105,7 +107,8 @@ export function runBacktest(
 
     if (pos && (want !== pos.dir || restart)) close(bar.open, bar.epoch, "signal");
 
-    if (!pos && want !== 0 && (want !== desired[i - 2]! || restart)) {
+    // Like the live bot: outside its hours a fresh signal is skipped, and it doesn't enter that move late.
+    if (!pos && want !== 0 && (want !== desired[i - 2]! || restart) && (options.canOpen?.(bar.epoch) ?? true)) {
       const dir = want as 1 | -1;
       const own = resolveLevels(dir, bar.open, levels?.get(i - 1));
       const stopDist = own.stop !== null ? Math.abs(bar.open - own.stop) : atr[i - 1]! * atrMult;

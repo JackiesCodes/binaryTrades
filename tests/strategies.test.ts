@@ -90,3 +90,22 @@ describe("Deriv multipliers", () => {
     expect(validMultiplier("SOMETHING", 37)).toBe(37);
   });
 });
+
+describe("backtest with trading hours", () => {
+  // Flat market with a little range (so the ATR stop is never hit) and a scripted signal.
+  // (30 quiet bars first, so the volatility stop has history to size from.)
+  const bars: Candle[] = Array.from({ length: 54 }, (_, i) => ({ epoch: i * 3600, open: 100, high: 101, low: 99, close: 100 }));
+  const want = [...Array(30).fill(0), 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const scripted = { id: "scripted", name: "Scripted", style: "", description: "", params: [], positions: () => Int8Array.from(want) };
+
+  it("skips a fresh signal outside the hours, without entering it late, and still closes trades", () => {
+    const all = runBacktest(bars, scripted, {}, OPTIONS);
+    expect(all.trades.map((t) => [t.side, t.entry_epoch / 3600, t.exit_epoch / 3600])).toEqual([
+      ["buy", 34, 38],
+      ["sell", 41, 45],
+    ]);
+    // Bar 34 (when the buy would open) and bar 45 (when the sell closes) are outside the hours.
+    const limited = runBacktest(bars, scripted, {}, { ...OPTIONS, canOpen: (epoch) => epoch / 3600 !== 34 && epoch / 3600 !== 45 });
+    expect(limited.trades.map((t) => [t.side, t.entry_epoch / 3600, t.exit_epoch / 3600])).toEqual([["sell", 41, 45]]);
+  });
+});
