@@ -18,6 +18,8 @@ const schema = z.object({
   timeframe: z.coerce.number().int().positive().optional(),
   bars: z.coerce.number().int().min(300).max(5000).default(3000),
   risk_percent: z.coerce.number().min(0.1).max(5).default(1),
+  /** Fixed risk per trade, as a bot set to "Fixed $" (replaces risk_percent). */
+  risk_amount: z.coerce.number().positive().max(1_000_000).nullable().optional(),
   cost_percent: z.coerce.number().min(0).max(1).default(0.02),
   /** A sample TradingView alert to run through onAlert(alert, i) on the latest candles. */
   alert: z.record(z.unknown()).optional(),
@@ -82,6 +84,7 @@ export const POST = withUser(async (_user, request) => {
     const result = runBacktest(candles, def, params, {
       initialBalance: 10000,
       riskPercent: input.risk_percent,
+      riskAmount: input.risk_amount ?? undefined,
       costPercent: input.cost_percent,
       timeframe: input.timeframe,
     });

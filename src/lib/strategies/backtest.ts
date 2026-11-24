@@ -11,6 +11,8 @@ export interface BacktestOptions {
   /** Only open trades on bars in [fromIndex, toIndex). Indicators still use earlier bars. */
   fromIndex?: number;
   toIndex?: number;
+  /** A fixed amount risked per trade (like a bot set to "Fixed $"); replaces riskPercent when set. */
+  riskAmount?: number;
   /** Whether a trade may be opened on the bar starting at this epoch (e.g. a bot's trading hours). Closing is always allowed. */
   canOpen?: (epoch: number) => boolean;
 }
@@ -113,7 +115,7 @@ export function runBacktest(
       const own = resolveLevels(dir, bar.open, levels?.get(i - 1));
       const stopDist = own.stop !== null ? Math.abs(bar.open - own.stop) : atr[i - 1]! * atrMult;
       if (Number.isFinite(stopDist) && stopDist > 0 && balance > 0) {
-        const risk = (balance * options.riskPercent) / 100;
+        const risk = options.riskAmount && options.riskAmount > 0 ? options.riskAmount : (balance * options.riskPercent) / 100;
         pos = {
           dir,
           entry: bar.open,

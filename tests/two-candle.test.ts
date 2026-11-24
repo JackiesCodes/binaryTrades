@@ -134,3 +134,25 @@ describe("Two-candle momentum script", () => {
     expect(Date.now() - started).toBeLessThan(3000);
   });
 });
+
+describe("testing it with a fixed $ risk, like the bot", () => {
+  it("a stop loses the fixed amount and a target wins 2.5× it (before trading costs), whatever the balance", async () => {
+    // Setups that alternate between hitting the target and the stop.
+    const bars: Candle[] = [];
+    let t = 1_800_000_000;
+    const push = (o: number, c: number, hi?: number, lo?: number) => bars.push({ epoch: (t += 900), open: o, close: c, high: hi ?? Math.max(o, c) + 0.1, low: lo ?? Math.min(o, c) - 0.1 });
+    for (let k = 0; k < 40; k++) push(3600, 3600); // quiet start (dojis)
+    for (let round = 0; round < 6; round++) {
+      push(3600, 3601); // bull body 1
+      push(3601, 3603); // bull body 2 → BUY at the next open (3603), stop 3583, target 3653
+      push(3603, 3603); // doji
+      if (round % 2) push(3603, 3600, 3603.1, 3580); // stop hit
+      else push(3603, 3600, 3660, 3599.9); // target hit
+      for (let k = 0; k < 3; k++) push(3600, 3600);
+    }
+    const def = await scriptStrategy(code);
+    const result = runBacktest(bars, def, { stop_distance: 20, reward_ratio: 2.5 }, { initialBalance: 10_000, riskPercent: 1, riskAmount: 20, costPercent: 0, timeframe: 900 });
+    const pnls = result.trades.map((x) => Math.round(x.pnl * 100) / 100);
+    expect(pnls).toEqual([50, -20, 50, -20, 50, -20]);
+  });
+});

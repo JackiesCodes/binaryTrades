@@ -52,6 +52,8 @@ function ScriptStudio() {
   const [values, setValues] = useState<Record<string, number>>({});
   const [atrMult, setAtrMult] = useState(2);
   const [rr, setRr] = useState(2);
+  // Shared by Test and Create bot, so a test risks what the bot will (e.g. Fixed $20 per trade).
+  const [risk, setRisk] = useState<RiskValue>(riskValueOf());
   const [dataSymbol, setDataSymbol] = useState("R_75");
   const [timeframe, setTimeframe] = useState(3600);
   const [busy, setBusy] = useState<"check" | "test" | "deploy" | null>(null);
@@ -72,6 +74,7 @@ function ScriptStudio() {
     setAtrMult(params.atr_mult ?? 2);
     setRr(params.rr ?? 2);
     setDataSymbol(editing.data_symbol);
+    setRisk(riskValueOf(editing));
     setTimeframe(editing.timeframe);
     setCheck(null);
     setTest(null);
@@ -91,7 +94,7 @@ function ScriptStudio() {
     setBusy(kind);
     setError(null);
     try {
-      const body = { code, params, ...(kind === "test" ? { data_symbol: dataSymbol, timeframe } : {}) };
+      const body = { code, params, ...(kind === "test" ? { data_symbol: dataSymbol, timeframe, ...riskBody(risk) } : {}) };
       const res = await api<CheckResult | TestResult>("/api/scripts/test", "POST", body);
       applyInputs(res.inputs);
       setCheck(res);
@@ -217,12 +220,15 @@ function ScriptStudio() {
                       ))}
                     </select>
                   </Field>
-                  <Field label="Stop (× ATR)">
+                  <Field label="Stop (× ATR)" hint="Only if the script sets no stop">
                     <Input type="number" step="0.1" min="0.1" value={atrMult} onChange={(e) => setAtrMult(Number(e.target.value))} />
                   </Field>
-                  <Field label="Reward : risk" hint="0 = exit on signal">
+                  <Field label="Reward : risk" hint="Only if the script sets no target · 0 = exit on signal">
                     <Input type="number" step="0.5" min="0" value={rr} onChange={(e) => setRr(Number(e.target.value))} />
                   </Field>
+                  <div className="col-span-2">
+                    <RiskField value={risk} onChange={setRisk} />
+                  </div>
                   {Object.keys(inputs).map((k) => (
                     <Field key={k} label={k}>
                       <Input type="number" step="any" value={values[k] ?? inputs[k]} onChange={(e) => setValues({ ...values, [k]: Number(e.target.value) })} />
@@ -271,6 +277,8 @@ function ScriptStudio() {
               timeframe={timeframe}
               onDataSymbol={setDataSymbol}
               onTimeframe={setTimeframe}
+              risk={risk}
+              onRisk={setRisk}
               disabled={disabled}
               onError={setError}
               onBusy={(b) => setBusy(b ? "deploy" : null)}
@@ -468,6 +476,8 @@ function DeployPanel({
   timeframe,
   onDataSymbol,
   onTimeframe,
+  risk,
+  onRisk,
   disabled,
   busy,
   onBusy,
@@ -480,6 +490,8 @@ function DeployPanel({
   timeframe: number;
   onDataSymbol: (v: string) => void;
   onTimeframe: (v: number) => void;
+  risk: RiskValue;
+  onRisk: (r: RiskValue) => void;
   disabled: boolean;
   busy: boolean;
   onBusy: (b: boolean) => void;
@@ -494,7 +506,6 @@ function DeployPanel({
   const [mt5Symbol, setMt5Symbol] = useState("");
   const [mt5Edited, setMt5Edited] = useState(false);
   const [priceSource, setPriceSource] = useState<"broker" | "deriv">("broker");
-  const [risk, setRisk] = useState<RiskValue>(riskValueOf());
   const [multiplier, setMultiplier] = useState(100);
   const [startNow, setStartNow] = useState(true);
   const isMt5 = broker?.kind === "mt5";
@@ -625,7 +636,7 @@ function DeployPanel({
             />
           </Field>
         )}
-        <RiskField value={risk} onChange={setRisk} currency={broker?.currency} />
+        <RiskField value={risk} onChange={onRisk} currency={broker?.currency} />
         {!isMt5 && (
           <MultiplierField symbol={dataSymbol} value={multiplier} onChange={setMultiplier} label="Multiplier" />
         )}
