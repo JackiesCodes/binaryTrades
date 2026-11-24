@@ -10,6 +10,7 @@ import { activeChallenge, advanceBookState, checkRisk, derivStake } from "@/lib/
 import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSettings } from "@/lib/trading/store";
 import { validMultiplier } from "@/lib/trading/symbols";
 import type { Book, Bot, BrokerAccount, Challenge, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
+import { hoursLabel, inTradingHours } from "@/lib/trading/hours";
 import { watchdog } from "@/lib/trading/watchdog";
 
 /** External calls, swappable in tests. */
@@ -529,6 +530,11 @@ export async function processSignal(input: SignalInput): Promise<Signal> {
   }
 
   for (const t of open.filter((t) => t.side !== input.action)) await closeTrade(t, "Reversed by opposite signal");
+  // Outside its trading hours a bot may close (above) but not open. Your own orders and price-alert
+  // trades are deliberate, so they're not held to the bot's hours.
+  if (input.source !== "manual" && input.source !== "alert" && !inTradingHours(bot.trading_hours)) {
+    return record("rejected", `Outside its trading hours (${hoursLabel(bot.trading_hours!)})`);
+  }
   if (open.some((t) => t.side === input.action)) return record("rejected", `Already ${input.action === "buy" ? "long" : "short"}`);
 
   const result = await openTrade(bot, {

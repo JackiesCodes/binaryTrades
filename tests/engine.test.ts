@@ -121,6 +121,24 @@ describe("trading engine", () => {
     expect(s.reason).toMatch(/no broker account/i);
   });
 
+  it("outside its trading hours a bot closes but doesn't open; your own orders still go through", async () => {
+    const demo = await derivAccount("t", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id });
+    await getStore().bots.insert(bot);
+    expect((await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1, sl: 1.089 })).status).toBe("accepted");
+
+    const h = new Date().getUTCHours();
+    const closedNow = { ...bot, trading_hours: { from: (h + 2) % 24, to: (h + 3) % 24, days: [0, 1, 2, 3, 4, 5, 6], tz: "UTC" } };
+    const s = await processSignal({ bot: closedNow, source: "tradingview", action: "sell", price: 1.1, sl: 1.111 });
+    expect(s.status).toBe("rejected");
+    expect(s.reason).toMatch(/^Outside its trading hours \(every day \d\d:00–\d\d:00\)$/);
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(0); // the buy was still closed
+
+    expect((await processSignal({ bot: closedNow, source: "manual", action: "sell", price: 1.1, sl: 1.111 })).status).toBe("accepted");
+    const allDay = { ...bot, trading_hours: { from: 0, to: 0, days: [0, 1, 2, 3, 4, 5, 6], tz: "UTC" } };
+    expect((await processSignal({ bot: allDay, source: "tradingview", action: "buy", price: 1.1, sl: 1.089 })).status).toBe("accepted");
+  });
+
   it("ignores duplicate alerts and paused bots", async () => {
     const demo = await derivAccount("t", true, 1000);
     const bot = makeBot({ broker_account_id: demo.id });

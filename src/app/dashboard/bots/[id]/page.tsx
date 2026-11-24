@@ -8,6 +8,7 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { RiskField, WebhookSetup, botKind, botStats, describeCheck, riskBody, riskError, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
 import { BotPerformance } from "@/components/app/bot-performance";
 import { ChallengePanel } from "@/components/app/challenge";
+import { TradingHoursField } from "@/components/app/trading-hours-field";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
 import { EmptyState, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { brokerOptionLabel, money, pnlClass, price, timeAgo } from "@/lib/client";
 import { getStrategy } from "@/lib/strategies";
 import { DATA_SYMBOLS, timeframeLabel } from "@/lib/trading/symbols";
+import type { TradingHours } from "@/lib/trading/hours";
 import type { Bot, Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
@@ -51,13 +53,15 @@ function BotView({ bot }: { bot: Bot }) {
   const [panel, setPanel] = useState<"settings" | "manual" | "challenge">(challengeOn ? "challenge" : "settings");
   const [risk, setRisk] = useState<RiskValue>(() => riskValueOf(bot));
   const [account, setAccount] = useState(bot.broker_account_id ?? "");
+  const [hours, setHours] = useState<TradingHours | null>(bot.trading_hours ?? null);
   const [selected, setSelected] = useState<Trade | null>(null);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
     setRisk(riskValueOf(bot));
     setAccount(bot.broker_account_id ?? "");
-  }, [bot.risk_percent, bot.risk_amount, bot.broker_account_id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setHours(bot.trading_hours ?? null);
+  }, [bot.risk_percent, bot.risk_amount, bot.broker_account_id, JSON.stringify(bot.trading_hours ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!state) return null;
   const s = botStats(bot, state.open_trades, state.closed_trades);
@@ -73,7 +77,8 @@ function BotView({ bot }: { bot: Bot }) {
   const savedRisk = riskBody(riskValueOf(bot));
   const nextRisk = riskBody(risk);
   const riskChanged = nextRisk.risk_percent !== savedRisk.risk_percent || nextRisk.risk_amount !== savedRisk.risk_amount;
-  const dirty = riskChanged || account !== (bot.broker_account_id ?? "");
+  const hoursChanged = JSON.stringify(hours) !== JSON.stringify(bot.trading_hours ?? null);
+  const dirty = riskChanged || hoursChanged || account !== (bot.broker_account_id ?? "");
   const check = describeCheck(bot, timeframeLabel(bot.timeframe));
   const tv = bot.source === "tradingview" || /function\s+onAlert\s*\(/.test(bot.strategy?.code ?? "");
   const list_ = list === "open" ? s.open : s.closed.slice().reverse();
@@ -83,6 +88,7 @@ function BotView({ bot }: { bot: Bot }) {
       {
         ...(riskChanged ? nextRisk : {}),
         ...(account !== (bot.broker_account_id ?? "") ? { broker_account_id: account } : {}),
+        ...(hoursChanged ? { trading_hours: hours } : {}),
       },
       "Settings saved",
     );
@@ -170,6 +176,7 @@ function BotView({ bot }: { bot: Bot }) {
                     ))}
                   </select>
                 </label>
+                <TradingHoursField value={hours} onChange={setHours} />
               </FieldBox>
               <KV
                 rows={[

@@ -1,3 +1,5 @@
+import type { TradingHours } from "@/lib/trading/hours";
+
 // Field names are snake_case so rows map 1:1 onto the Supabase tables in
 // supabase/migrations/0001_amogana_autotrade.sql.
 
@@ -74,6 +76,8 @@ export interface Bot {
   last_check?: { at: string; result: string; stuck_since?: string | null; stuck_warned?: boolean } | null;
   /** Demo-only high-risk challenge (null when none has been run). */
   challenge?: Challenge | null;
+  /** When it may open new trades (null: any time). It still manages and closes trades outside them. */
+  trading_hours?: TradingHours | null;
   created_at: string;
 }
 

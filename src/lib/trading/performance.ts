@@ -140,3 +140,38 @@ export function holdLabel(min: number): string {
   }
   return `${Math.round(min / 1440)} days`;
 }
+
+export interface Bucket {
+  trades: number;
+  pnl: number;
+  wins: number;
+}
+
+/**
+ * Results by the hour of day and weekday each trade was opened, on the user's clock (`tz`):
+ * shows when a bot makes or loses its money. hours[0..23], days[0 = Sunday .. 6].
+ */
+export function byTimeOfDay(trades: ClosedTrade[], tz: string): { hours: Bucket[]; days: Bucket[] } {
+  const empty = () => ({ trades: 0, pnl: 0, wins: 0 });
+  const hours = Array.from({ length: 24 }, empty);
+  const days = Array.from({ length: 7 }, empty);
+  let fmt: Intl.DateTimeFormat;
+  try {
+    fmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "2-digit", hourCycle: "h23" });
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", hour: "2-digit", hourCycle: "h23" });
+  }
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (const t of trades) {
+    const parts = fmt.formatToParts(new Date(t.opened_at));
+    const h = Number(parts.find((p) => p.type === "hour")?.value);
+    const d = DAYS.indexOf(parts.find((p) => p.type === "weekday")?.value ?? "");
+    for (const b of [hours[h], days[d]]) {
+      if (!b) continue;
+      b.trades++;
+      b.pnl = round(b.pnl + t.pnl);
+      if (t.pnl > 0) b.wins++;
+    }
+  }
+  return { hours, days };
+}

@@ -392,6 +392,14 @@ alter table push_devices add column if not exists timezone text;
 alter table push_devices add column if not exists summary_sent_on text;
 `,
   },
+  {
+    file: "0013_trading_hours.sql",
+    sql: `-- 0013: bots can be limited to trading hours (when they may open new trades).
+-- Idempotent: safe to run more than once.
+
+alter table bots add column if not exists trading_hours jsonb;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -413,6 +421,8 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'last_check') as done",
   "0010_markets_state.sql": "select to_regclass('public.markets_state') is not null as done",
   "0011_push_devices.sql": "select to_regclass('public.push_devices') is not null as done",
+  "0013_trading_hours.sql":
+    "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'trading_hours') as done",
   "0012_push_summary.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'push_devices' and column_name = 'summary_sent_on') as done",
 };

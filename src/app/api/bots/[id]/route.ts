@@ -6,6 +6,7 @@ import { jsonError, zodError } from "@/lib/http";
 import { getStrategy } from "@/lib/strategies";
 import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
 import { activeTrades, closeTrade } from "@/lib/trading/engine";
+import { hoursLabel, sanitizeHours } from "@/lib/trading/hours";
 import { forUser, getSettings, log } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 import { allowedMultipliers, multiplierMessage } from "@/lib/trading/symbols";
@@ -25,6 +26,8 @@ const patchSchema = z.object({
   strategy_params: z.record(z.coerce.number()).optional(),
   /** New source code for a script bot. */
   script: z.string().min(1).max(MAX_SCRIPT_LENGTH).optional(),
+  /** When it may open new trades; null removes the limit. */
+  trading_hours: z.unknown().optional(),
 });
 
 type Ctx = { params: { id: string } };
@@ -36,9 +39,17 @@ export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
-  const { strategy_params, script, ...rest } = parsed.data;
+  const { strategy_params, script, trading_hours, ...rest } = parsed.data;
 
   const patch: Partial<Bot> = { ...rest };
+  if (trading_hours !== undefined) {
+    if (trading_hours === null) patch.trading_hours = null;
+    else {
+      const hours = sanitizeHours(trading_hours);
+      if (!hours) return jsonError(400, "BAD_TRADING_HOURS", "Choose at least one day, hours between 00 and 24, and a valid time zone.");
+      patch.trading_hours = hours;
+    }
+  }
   if (bot.strategy?.id === SCRIPT_STRATEGY_ID && (script !== undefined || strategy_params)) {
     const code = script ?? bot.strategy.code ?? "";
     const params = { ...bot.strategy.params, ...strategy_params };
@@ -78,6 +89,9 @@ export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
 
   const updated = await store.bots.update(bot.id, patch);
   if (script !== undefined) await log("info", `Bot "${bot.name}" script updated`, { user_id: user.id, bot_id: bot.id });
+  if (trading_hours !== undefined) {
+    await log("info", `Bot "${bot.name}" trading hours: ${patch.trading_hours ? hoursLabel(patch.trading_hours) : "any time"}`, { user_id: user.id, bot_id: bot.id });
+  }
   if (patch.status && patch.status !== bot.status) {
     await log("info", `Bot "${bot.name}" ${patch.status === "running" ? "started" : "paused"}`, { user_id: user.id, bot_id: bot.id });
   }
