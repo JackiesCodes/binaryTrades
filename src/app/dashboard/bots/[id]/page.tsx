@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 
 import { RiskField, WebhookSetup, botKind, botStats, describeCheck, riskBody, riskError, riskLabel, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
+import { BotPerformance } from "@/components/app/bot-performance";
 import { ChallengePanel } from "@/components/app/challenge";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
@@ -211,7 +212,7 @@ function BotView({ bot }: { bot: Bot }) {
           )}
 
           <div className="h-px bg-white/[0.06]" />
-          <AsideTitle>Performance</AsideTitle>
+          <AsideTitle>At a glance</AsideTitle>
           <KV
             rows={[
               ["P&L", money(s.pnl, broker?.currency, true), pnlClass(s.pnl)],
@@ -243,6 +244,8 @@ function BotView({ bot }: { bot: Bot }) {
         </div>
         <TradeChart key={range} symbol={bot.data_symbol} from={from} to={now} timeframe={bot.timeframe} trades={chartTrades} height={320} />
       </Panel>
+
+      <BotPerformance botId={bot.id} currency={broker?.currency} closedCount={s.closed.length} />
 
       {tv && (
         <Panel title="TradingView setup">
