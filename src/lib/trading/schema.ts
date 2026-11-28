@@ -400,6 +400,16 @@ alter table push_devices add column if not exists summary_sent_on text;
 alter table bots add column if not exists trading_hours jsonb;
 `,
   },
+  {
+    file: "0014_trailing_stops.sql",
+    sql: `-- 0014: "Protect profits": bots can move their stop to break-even and trail it behind the best
+-- price; trades remember their best price and that stop. Idempotent: safe to run more than once.
+
+alter table bots add column if not exists trail jsonb;
+alter table trades add column if not exists best_price numeric;
+alter table trades add column if not exists trail_stop numeric;
+`,
+  },
 ] as const;
 
 /** For each migration, a query returning `done = true` once its changes are in place. */
@@ -421,6 +431,8 @@ export const APPLIED_CHECKS: Record<(typeof MIGRATIONS)[number]["file"], string>
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'last_check') as done",
   "0010_markets_state.sql": "select to_regclass('public.markets_state') is not null as done",
   "0011_push_devices.sql": "select to_regclass('public.push_devices') is not null as done",
+  "0014_trailing_stops.sql":
+    "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'trades' and column_name = 'trail_stop') as done",
   "0013_trading_hours.sql":
     "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'bots' and column_name = 'trading_hours') as done",
   "0012_push_summary.sql":

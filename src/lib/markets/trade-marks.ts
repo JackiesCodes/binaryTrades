@@ -53,6 +53,7 @@ export function tradeLines(trades: Trade[]): TradeLine[] {
     const side = t.side === "buy" ? "Buy" : "Sell";
     if (t.entry_price) out.push({ id: `${t.id}:entry`, price: t.entry_price, kind: "entry", title: `${side} ${signed(t.pnl)}` });
     if (t.sl) out.push({ id: `${t.id}:stop`, price: t.sl, kind: "stop", title: "Stop" });
+    if (t.trail_stop) out.push({ id: `${t.id}:trail`, price: t.trail_stop, kind: "stop", title: "Trailing stop" });
     if (t.tp) out.push({ id: `${t.id}:target`, price: t.tp, kind: "target", title: "Target" });
   }
   return out;

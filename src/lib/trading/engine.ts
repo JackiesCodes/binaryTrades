@@ -11,6 +11,7 @@ import { dayKey, forUser, getSettings, getStore, log, newId, nowIso, updateSetti
 import { validMultiplier } from "@/lib/trading/symbols";
 import type { Book, Bot, BrokerAccount, Challenge, Side, Signal, SignalAction, Trade } from "@/lib/trading/types";
 import { hoursLabel, inTradingHours } from "@/lib/trading/hours";
+import { trailStep } from "@/lib/trading/trail";
 import { watchdog } from "@/lib/trading/watchdog";
 
 /** External calls, swappable in tests. */
@@ -158,6 +159,8 @@ export async function openTrade(
   if (price && sl === null && req.stopDistance) sl = price - dir * req.stopDistance;
   // Reward:risk targets are measured from the actual stop (the strategy's own, or the ATR stop).
   if (price && tp === null && req.rr && sl !== null) tp = price + dir * req.rr * Math.abs(price - sl);
+  // Protect profits with no take profit: the trailing stop decides the exit.
+  if (bot.trail?.no_target) tp = null;
   const stopDistance = price && sl !== null ? Math.abs(price - sl) : null;
 
   const base: Trade = {
@@ -556,6 +559,42 @@ function closedCandles(candles: Candle[], timeframe: number): Candle[] {
   return candles.filter((c) => c.epoch + timeframe <= now);
 }
 
+/**
+ * Protect profits, every minute after prices sync: each open trade of a bot with a trailing setting
+ * follows its best price; once it's far enough in profit its stop moves to break-even and then
+ * trails, and the trade is closed when the price comes back to that stop. (The broker keeps the
+ * first stop as a safety net.)
+ */
+export async function manageTrails(userId: string): Promise<void> {
+  const store = forUser(userId);
+  const open = (await activeTrades(userId)).filter((t) => t.status === "open" && t.bot_id && !t.close_reason);
+  if (!open.length) return;
+  const bots = new Map((await store.bots.all()).map((b) => [b.id, b]));
+  for (const t of open) {
+    const bot = bots.get(t.bot_id!);
+    const cfg = bot?.trail;
+    const price = t.current_price;
+    if (!bot || !cfg || !t.entry_price || t.sl === null || price === null) continue;
+    const prev = { best: t.best_price ?? t.entry_price, stop: t.trail_stop ?? null };
+    const next = trailStep({ side: t.side, entry: t.entry_price, firstStop: t.sl }, cfg, prev, { high: price, low: price });
+    if (next.hit) {
+      const lockedIn = (prev.stop! - t.entry_price) * (t.side === "buy" ? 1 : -1);
+      try {
+        await closeTrade(t, lockedIn > 1e-9 ? "Trailing stop" : "Break-even stop");
+      } catch (error) {
+        await log("error", `${bot.name}: could not close ${t.symbol} at its trailing stop — ${(error as Error).message}`, { user_id: userId, bot_id: bot.id });
+      }
+      continue;
+    }
+    if (next.best !== prev.best || next.stop !== prev.stop) {
+      await store.trades.update(t.id, { best_price: next.best, trail_stop: next.stop });
+      if (prev.stop === null && next.stop !== null) {
+        await log("info", `${bot.name}: ${t.symbol} ${t.side} is in profit — stop moved to ${next.stop.toFixed(5).replace(/0+$/, "").replace(/\.$/, "")} and now follows the price`, { user_id: userId, bot_id: bot.id });
+      }
+    }
+  }
+}
+
 export async function syncDerivAccount(broker: BrokerAccount): Promise<void> {
   const store = forUser(broker.user_id);
   try {
@@ -865,6 +904,8 @@ export async function tickUser(userId: string): Promise<Record<string, string>> 
       await store.brokers.update(broker.id, { status: "waiting", error: "MT5 bridge has not checked in for 2 minutes" });
     }
   }
+
+  await manageTrails(userId);
 
   // Demo challenges end on target, a 90% loss or their time limit, before the bots trade.
   for (const bot of await store.bots.all()) {

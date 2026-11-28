@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ingestMt5Report, type Mt5Report } from "@/lib/brokers/mt5";
 import { encryptSecret } from "@/lib/secrets";
-import { activeTrades, alertTrade, bookEquity, clearCandleCache, deps, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
+import { activeTrades, alertTrade, bookEquity, clearCandleCache, deps, manageTrails, processSignal, runBuiltinBot, runEngineTick, setKillSwitch } from "@/lib/trading/engine";
 import { forUser, getSettings, getStore, newId, nowIso, resetStore, updateSettings } from "@/lib/trading/store";
 import type { Bot, BrokerAccount, Challenge } from "@/lib/trading/types";
 
@@ -120,6 +120,52 @@ describe("trading engine", () => {
     const s = await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1 });
     expect(s).toMatchObject({ status: "rejected" });
     expect(s.reason).toMatch(/no broker account/i);
+  });
+
+  it("protect profits: the stop moves to break-even, follows the price, and the trade closes when it comes back", async () => {
+    const demo = await derivAccount("trail", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id, trail: { start_r: 1, distance_r: 1 } });
+    await getStore().bots.insert(bot);
+    expect((await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1, sl: 1.09 })).status).toBe("accepted");
+    const [t] = await activeTrades(U, { bot_id: bot.id });
+    const setPrice = (p: number) => getStore().trades.update(t!.id, { current_price: p });
+
+    await setPrice(1.105); // +0.5 R: nothing yet
+    await manageTrails(U);
+    expect(await getStore().trades.get(t!.id)).toMatchObject({ best_price: 1.105, trail_stop: null });
+
+    await setPrice(1.115); // +1.5 R: stop 1 R behind the best price = 1.105
+    await manageTrails(U);
+    const moved = (await getStore().trades.get(t!.id))!;
+    expect(moved.best_price).toBe(1.115);
+    expect(moved.trail_stop).toBeCloseTo(1.105, 9);
+    expect((await getStore().logs.all()).some((l) => /in profit — stop moved to 1\.105 and now follows the price/.test(l.message))).toBe(true);
+
+    await setPrice(1.104); // back through it: closed, in profit
+    await manageTrails(U);
+    const closed = (await getStore().trades.get(t!.id))!;
+    expect(closed.status).toBe("closed");
+    expect(closed.close_reason).toMatch(/^Trailing stop/);
+    expect(await activeTrades(U, { bot_id: bot.id })).toHaveLength(0);
+  });
+
+  it("protect profits: a break-even close is named so, and bots without it are left alone", async () => {
+    const demo = await derivAccount("trail2", true, 1000);
+    const bot = makeBot({ broker_account_id: demo.id, trail: { start_r: 1, distance_r: 1 } });
+    const plain = makeBot({ broker_account_id: demo.id });
+    await getStore().bots.insert(bot);
+    await getStore().bots.insert(plain);
+    await processSignal({ bot, source: "tradingview", action: "buy", price: 1.1, sl: 1.09 });
+    await processSignal({ bot: plain, source: "tradingview", action: "buy", price: 1.1, sl: 1.09 });
+    const [t] = await activeTrades(U, { bot_id: bot.id });
+    const [p] = await activeTrades(U, { bot_id: plain.id });
+    for (const id of [t!.id, p!.id]) await getStore().trades.update(id, { current_price: 1.11 }); // exactly +1 R
+    await manageTrails(U);
+    expect((await getStore().trades.get(t!.id))!.trail_stop).toBeCloseTo(1.1, 9);
+    for (const id of [t!.id, p!.id]) await getStore().trades.update(id, { current_price: 1.0995 });
+    await manageTrails(U);
+    expect((await getStore().trades.get(t!.id))!.close_reason).toMatch(/^Break-even stop/);
+    expect((await getStore().trades.get(p!.id))!.status).toBe("open"); // no protect-profits setting
   });
 
   it("outside its trading hours a bot closes but doesn't open; your own orders still go through", async () => {

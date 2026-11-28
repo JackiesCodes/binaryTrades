@@ -64,6 +64,7 @@ export const GET = withUser<{ params: { id: string } }>(async (user, _request, {
     timeframe: bot.timeframe,
     canOpen: hours ? (epoch) => inTradingHours(hours, new Date(epoch * 1000)) : undefined,
     stopCap: multiplier ? (price) => price / multiplier : undefined,
+    trail: bot.trail ?? null,
   });
   // Warn when the bot's stop is further than Deriv lets a trade go at this multiplier.
   let warning: string | null = null;

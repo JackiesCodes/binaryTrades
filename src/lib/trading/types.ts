@@ -1,4 +1,5 @@
 import type { TradingHours } from "@/lib/trading/hours";
+import type { TrailConfig } from "@/lib/trading/trail";
 
 // Field names are snake_case so rows map 1:1 onto the Supabase tables in
 // supabase/migrations/0001_amogana_autotrade.sql.
@@ -78,6 +79,8 @@ export interface Bot {
   challenge?: Challenge | null;
   /** When it may open new trades (null: any time). It still manages and closes trades outside them. */
   trading_hours?: TradingHours | null;
+  /** "Protect profits": a stop that follows winning trades (null: fixed stop). */
+  trail?: TrailConfig | null;
   created_at: string;
 }
 
@@ -130,6 +133,9 @@ export interface Trade {
   exit_price: number | null;
   opened_at: string;
   closed_at: string | null;
+  /** Protect profits: best price since entry, and the stop following it (null until it starts). */
+  best_price?: number | null;
+  trail_stop?: number | null;
 }
 
 export type SignalAction = "buy" | "sell" | "close";

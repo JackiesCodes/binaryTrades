@@ -12,7 +12,7 @@ export interface BotPreviewTrade {
   pnl: number;
   r_multiple: number;
   /** "end" = still open at the latest candle. */
-  reason: "signal" | "stop" | "target" | "end";
+  reason: "signal" | "stop" | "target" | "end" | "trail";
   stop: number;
   target: number | null;
 }

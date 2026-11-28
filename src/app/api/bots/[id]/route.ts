@@ -7,6 +7,7 @@ import { getStrategy } from "@/lib/strategies";
 import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
 import { activeTrades, closeTrade } from "@/lib/trading/engine";
 import { hoursLabel, sanitizeHours } from "@/lib/trading/hours";
+import { sanitizeTrail, trailLabel } from "@/lib/trading/trail";
 import { forUser, getSettings, log } from "@/lib/trading/store";
 import type { Bot } from "@/lib/trading/types";
 import { allowedMultipliers, multiplierMessage } from "@/lib/trading/symbols";
@@ -28,6 +29,8 @@ const patchSchema = z.object({
   script: z.string().min(1).max(MAX_SCRIPT_LENGTH).optional(),
   /** When it may open new trades; null removes the limit. */
   trading_hours: z.unknown().optional(),
+  /** Protect profits (break-even and trailing stop); null for a fixed stop. */
+  trail: z.unknown().optional(),
 });
 
 type Ctx = { params: { id: string } };
@@ -39,9 +42,17 @@ export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return zodError(parsed.error);
-  const { strategy_params, script, trading_hours, ...rest } = parsed.data;
+  const { strategy_params, script, trading_hours, trail, ...rest } = parsed.data;
 
   const patch: Partial<Bot> = { ...rest };
+  if (trail !== undefined) {
+    if (trail === null) patch.trail = null;
+    else {
+      const cfg = sanitizeTrail(trail);
+      if (!cfg) return jsonError(400, "BAD_TRAIL", "Start and trail distances must be between 0.1 and 20 × the stop distance.");
+      patch.trail = cfg;
+    }
+  }
   if (trading_hours !== undefined) {
     if (trading_hours === null) patch.trading_hours = null;
     else {
@@ -89,6 +100,9 @@ export const PATCH = withUser<Ctx>(async (user, request, { params }) => {
 
   const updated = await store.bots.update(bot.id, patch);
   if (script !== undefined) await log("info", `Bot "${bot.name}" script updated`, { user_id: user.id, bot_id: bot.id });
+  if (trail !== undefined) {
+    await log("info", `Bot "${bot.name}" protect profits: ${patch.trail ? trailLabel(patch.trail) : "off (fixed stop)"}`, { user_id: user.id, bot_id: bot.id });
+  }
   if (trading_hours !== undefined) {
     await log("info", `Bot "${bot.name}" trading hours: ${patch.trading_hours ? hoursLabel(patch.trading_hours) : "any time"}`, { user_id: user.id, bot_id: bot.id });
   }

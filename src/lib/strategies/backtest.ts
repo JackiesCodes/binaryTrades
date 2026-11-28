@@ -1,4 +1,5 @@
 import { atrSeries, getStrategy, STRATEGIES } from "@/lib/strategies";
+import { trailStep, type TrailConfig } from "@/lib/trading/trail";
 import type { Candle, StrategyDefinition } from "@/lib/strategies/types";
 
 export interface BacktestOptions {
@@ -19,6 +20,8 @@ export interface BacktestOptions {
    * position keeps its size and its target, but stops out sooner.
    */
   stopCap?: (price: number) => number;
+  /** Protect profits: move the stop to break-even and trail it behind the best price. */
+  trail?: TrailConfig | null;
   /** Whether a trade may be opened on the bar starting at this epoch (e.g. a bot's trading hours). Closing is always allowed. */
   canOpen?: (epoch: number) => boolean;
 }
@@ -31,7 +34,7 @@ export interface BacktestTrade {
   exit: number;
   pnl: number;
   r_multiple: number;
-  reason: "signal" | "stop" | "target" | "end";
+  reason: "signal" | "stop" | "target" | "end" | "trail";
   /** The trade's stop and target prices (target null when it had none). */
   stop: number;
   target: number | null;
@@ -64,6 +67,10 @@ interface OpenPosition {
   units: number;
   risk: number;
   entryEpoch: number;
+  /** The first stop distance (1 R), the best price so far, and the trailing stop once started. */
+  r: number;
+  best: number;
+  trailStop: number | null;
 }
 
 /**
@@ -133,20 +140,40 @@ export function runBacktest(
           dir,
           entry: bar.open,
           stop: cap !== undefined && cap > 0 && Math.abs(bar.open - stopAt) > cap ? bar.open - dir * cap : stopAt,
-          target: own.target ?? (rr > 0 ? bar.open + dir * rr * stopDist : null),
+          target: options.trail?.no_target ? null : (own.target ?? (rr > 0 ? bar.open + dir * rr * stopDist : null)),
           units: risk / stopDist,
           risk,
           entryEpoch: bar.epoch,
+          r: stopDist,
+          best: bar.open,
+          trailStop: null,
         };
       }
     }
 
     if (pos) {
       const p: OpenPosition = pos;
+      // Protect profits: the trailing stop (set from earlier candles) is checked first, as it's the
+      // nearer one; a gap through it fills at the open. Then this candle's range moves it on.
+      const t = options.trail
+        ? trailStep(
+            { side: p.dir === 1 ? "buy" : "sell", entry: p.entry, firstStop: p.entry - p.dir * p.r },
+            options.trail,
+            { best: p.best, stop: p.trailStop },
+            { high: bar.high, low: bar.low },
+          )
+        : null;
       const stopHit = p.dir === 1 ? bar.low <= p.stop : bar.high >= p.stop;
       const targetHit = p.target !== null && (p.dir === 1 ? bar.high >= p.target : bar.low <= p.target);
-      if (stopHit) close(p.stop, bar.epoch, "stop");
+      if (t?.hit && p.trailStop !== null) {
+        const gapped = p.dir === 1 ? bar.open < p.trailStop : bar.open > p.trailStop;
+        close(gapped ? bar.open : p.trailStop, bar.epoch, "trail");
+      } else if (stopHit) close(p.stop, bar.epoch, "stop");
       else if (targetHit) close(p.target!, bar.epoch, "target");
+      else if (t) {
+        p.best = t.best;
+        p.trailStop = t.stop;
+      }
     }
 
     const floating = pos ? (bar.close - pos.entry) * pos.dir * pos.units : 0;

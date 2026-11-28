@@ -9,6 +9,7 @@ import { RiskField, WebhookSetup, botKind, botStats, describeCheck, riskBody, ri
 import { BotPerformance } from "@/components/app/bot-performance";
 import { ChallengePanel } from "@/components/app/challenge";
 import { TradingHoursField } from "@/components/app/trading-hours-field";
+import { TrailField } from "@/components/app/trail-field";
 import { useDashboard } from "@/components/app/dashboard-context";
 import { TradeChart, TradeDialog } from "@/components/app/trade-chart";
 import { EmptyState, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
@@ -19,6 +20,7 @@ import { brokerOptionLabel, money, pnlClass, price, timeAgo } from "@/lib/client
 import { getStrategy } from "@/lib/strategies";
 import { DATA_SYMBOLS, timeframeLabel } from "@/lib/trading/symbols";
 import type { TradingHours } from "@/lib/trading/hours";
+import type { TrailConfig } from "@/lib/trading/trail";
 import type { Bot, Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +56,7 @@ function BotView({ bot }: { bot: Bot }) {
   const [risk, setRisk] = useState<RiskValue>(() => riskValueOf(bot));
   const [account, setAccount] = useState(bot.broker_account_id ?? "");
   const [hours, setHours] = useState<TradingHours | null>(bot.trading_hours ?? null);
+  const [trail, setTrail] = useState<TrailConfig | null>(bot.trail ?? null);
   const [selected, setSelected] = useState<Trade | null>(null);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
 
@@ -61,7 +64,8 @@ function BotView({ bot }: { bot: Bot }) {
     setRisk(riskValueOf(bot));
     setAccount(bot.broker_account_id ?? "");
     setHours(bot.trading_hours ?? null);
-  }, [bot.risk_percent, bot.risk_amount, bot.broker_account_id, JSON.stringify(bot.trading_hours ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
+    setTrail(bot.trail ?? null);
+  }, [bot.risk_percent, bot.risk_amount, bot.broker_account_id, JSON.stringify(bot.trading_hours ?? null), JSON.stringify(bot.trail ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!state) return null;
   const s = botStats(bot, state.open_trades, state.closed_trades);
@@ -78,7 +82,9 @@ function BotView({ bot }: { bot: Bot }) {
   const nextRisk = riskBody(risk);
   const riskChanged = nextRisk.risk_percent !== savedRisk.risk_percent || nextRisk.risk_amount !== savedRisk.risk_amount;
   const hoursChanged = JSON.stringify(hours) !== JSON.stringify(bot.trading_hours ?? null);
-  const dirty = riskChanged || hoursChanged || account !== (bot.broker_account_id ?? "");
+  const trailChanged = JSON.stringify(trail) !== JSON.stringify(bot.trail ?? null);
+  const trailInvalid = trail !== null && !(trail.start_r >= 0.1 && trail.start_r <= 20 && trail.distance_r >= 0.1 && trail.distance_r <= 20);
+  const dirty = riskChanged || hoursChanged || trailChanged || account !== (bot.broker_account_id ?? "");
   const check = describeCheck(bot, timeframeLabel(bot.timeframe));
   const tv = bot.source === "tradingview" || /function\s+onAlert\s*\(/.test(bot.strategy?.code ?? "");
   const list_ = list === "open" ? s.open : s.closed.slice().reverse();
@@ -89,6 +95,7 @@ function BotView({ bot }: { bot: Bot }) {
         ...(riskChanged ? nextRisk : {}),
         ...(account !== (bot.broker_account_id ?? "") ? { broker_account_id: account } : {}),
         ...(hoursChanged ? { trading_hours: hours } : {}),
+        ...(trailChanged ? { trail } : {}),
       },
       "Settings saved",
     );
@@ -177,6 +184,7 @@ function BotView({ bot }: { bot: Bot }) {
                   </select>
                 </label>
                 <TradingHoursField value={hours} onChange={setHours} />
+                <TrailField value={trail} onChange={setTrail} riskAmount={risk.mode === "amount" ? risk.amount : null} currency={broker?.currency} />
               </FieldBox>
               <KV
                 rows={[
@@ -190,7 +198,7 @@ function BotView({ bot }: { bot: Bot }) {
                   ["Price feed", bot.price_source === "broker" ? "MT5 broker" : "Deriv"],
                 ]}
               />
-              <Button onClick={save} disabled={busy || !dirty || Boolean(riskError(risk))} className="h-12 w-full text-[15px] font-bold">
+              <Button onClick={save} disabled={busy || !dirty || trailInvalid || Boolean(riskError(risk))} className="h-12 w-full text-[15px] font-bold">
                 Save settings
               </Button>
               {bot.strategy?.id === "script" && (
