@@ -27,9 +27,29 @@ export const GET = withUser<{ params: { id: string } }>(async (user, _request, {
   if (!bot) return jsonError(404, "NOT_FOUND");
   if (!bot.strategy) return jsonError(422, "NO_STRATEGY", "This bot trades TradingView alerts, so there's no strategy to draw.");
 
+  const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
+  const hours = bot.trading_hours ?? null;
+  // Deriv: a multiplier trade can't lose more than its stake, so it closes price ÷ multiplier away
+  // even when the bot's stop is further. Show that, as the live bot would trade.
+  const multiplier = broker?.kind === "deriv" ? validMultiplier(bot.symbol, bot.deriv_multiplier) : null;
+
   let def;
   try {
-    def = bot.strategy.id === SCRIPT_STRATEGY_ID ? await scriptStrategy(bot.strategy.code ?? "", bot.name) : getStrategy(bot.strategy.id);
+    // A script sees the same settings as live (protect profits, the Deriv limit, trading hours), so one
+    // that follows its own trade frees up for the next setup exactly when the preview's trade ends.
+    def =
+      bot.strategy.id === SCRIPT_STRATEGY_ID
+        ? await scriptStrategy(bot.strategy.code ?? "", bot.name, {
+            live: false,
+            account: broker
+              ? { broker: broker.kind, balance: broker.balance, equity: broker.equity, currency: broker.currency, is_demo: broker.is_demo }
+              : { broker: "backtest", balance: 10_000, equity: 10_000, currency: "USD", is_demo: true },
+            broker_position: null,
+            trail: bot.trail ?? null,
+            multiplier,
+            hours,
+          })
+        : getStrategy(bot.strategy.id);
   } catch (error) {
     if (error instanceof ScriptError) return jsonError(422, "SCRIPT_ERROR", error.message);
     throw error;
@@ -51,11 +71,6 @@ export const GET = withUser<{ params: { id: string } }>(async (user, _request, {
   const lastBar = candles.at(-1)!;
   candles = [...candles, { epoch: lastBar.epoch + bot.timeframe, open: lastBar.close, high: lastBar.close, low: lastBar.close, close: lastBar.close }];
 
-  const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
-  const hours = bot.trading_hours ?? null;
-  // Deriv: a multiplier trade can't lose more than its stake, so it closes price ÷ multiplier away
-  // even when the bot's stop is further. Show that, as the live bot would trade.
-  const multiplier = broker?.kind === "deriv" ? validMultiplier(bot.symbol, bot.deriv_multiplier) : null;
   const result = runBacktest(candles, def, bot.strategy.params ?? {}, {
     initialBalance: broker?.equity && broker.equity > 0 ? broker.equity : 10_000,
     riskPercent: bot.risk_percent,

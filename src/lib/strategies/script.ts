@@ -4,6 +4,8 @@ import { getQuickJS, shouldInterruptAfterDeadline, type QuickJSContext, type Qui
 
 import { looksLikePine } from "@/lib/strategies/script-templates";
 import type { Candle, StrategyDefinition, TradeLevels } from "@/lib/strategies/types";
+import { inTradingHours, type TradingHours } from "@/lib/trading/hours";
+import type { TrailConfig } from "@/lib/trading/trail";
 
 export { looksLikePine };
 
@@ -59,6 +61,18 @@ const live = Boolean(__context.live);
 const account = Object.freeze(__context.account || null);
 /** Live only: this bot's open position at the broker, { side, entry, size, pnl } — or null. */
 const brokerPosition = __context.broker_position ? Object.freeze(__context.broker_position) : null;
+/** The bot's "Protect profits" setting, { start_r, distance_r, no_target } — or null when off. */
+const protect = __context.trail ? Object.freeze(__context.trail) : null;
+/** The farthest a stop can be from the entry at this price (Deriv: price ÷ multiplier; otherwise Infinity). */
+function maxStopDistance(price) {
+  const m = Number(__context.multiplier);
+  return m > 0 && price > 0 ? price / m : Infinity;
+}
+/** Whether a trade from a signal on bar i may open (the bot's trading hours; true when none are set). */
+function canOpen(i) {
+  const c = __context.can_open;
+  return !c || c[i] !== 0;
+}
 /** The script's own position while onBar runs: { side: "long" | "short" | null, entryIndex, entryPrice, barsHeld }. */
 let position = { side: null, entryIndex: null, entryPrice: null, barsHeld: 0 };
 const __inputs = {};
@@ -282,6 +296,24 @@ export interface ScriptContext {
   live: boolean;
   account: { broker: string; balance: number; equity: number; currency: string; is_demo: boolean } | null;
   broker_position: { side: "buy" | "sell"; entry: number | null; size: number; pnl: number } | null;
+  /** The bot's Protect profits setting, so a script that follows its own trade can follow it the same way. */
+  trail?: TrailConfig | null;
+  /** Deriv multiplier: a trade closes when it loses its stake, price ÷ multiplier from the entry. */
+  multiplier?: number | null;
+  /** Trading hours: canOpen(i) in the script is false for bars whose trade would open outside them. */
+  hours?: TradingHours | null;
+}
+
+/** The context as the sandbox sees it: hours become one flag per bar (1 = may open on the next bar). */
+function sandboxContext(context: ScriptContext, candles: Candle[]) {
+  const { hours, ...rest } = context;
+  if (!hours) return rest;
+  const step = candles.length > 1 ? candles[1]!.epoch - candles[0]!.epoch : 60;
+  const can_open = candles.map((c, i) => {
+    const entryAt = candles[i + 1]?.epoch ?? (context.live ? Date.now() / 1000 : c.epoch + step);
+    return inTradingHours(hours, new Date(entryAt * 1000)) ? 1 : 0;
+  });
+  return { ...rest, can_open };
 }
 
 const BACKTEST_CONTEXT: ScriptContext = {
@@ -350,7 +382,7 @@ function inSandbox(
     };
     setString("__BARS_JSON", JSON.stringify(candles));
     setString("__PARAMS_JSON", JSON.stringify(params ?? {}));
-    setString("__CONTEXT_JSON", JSON.stringify(context));
+    setString("__CONTEXT_JSON", JSON.stringify(sandboxContext(context, candles)));
     for (const [k, v] of Object.entries(extra)) setString(k, v);
     evalOrThrow(ctx, PRELUDE + DECIDE, "prelude.js");
     // The script runs inside its own function so it may reuse any name (even "close"),

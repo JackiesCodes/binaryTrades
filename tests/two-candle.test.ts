@@ -156,3 +156,55 @@ describe("testing it with a fixed $ risk, like the bot", () => {
     expect(pnls).toEqual([50, -20, 50, -20, 50, -20]);
   });
 });
+
+describe("Two-candle momentum follows the bot's settings, so tests match live", () => {
+  const ctx = (extra: Partial<ScriptContext>): ScriptContext => ({ live: false, account: null, broker_position: null, ...extra });
+  // BUY at bar 1 (stop 1, target 2 away from 101.5); runs to +1.5, falls back to 101.4; then a fresh BUY setup.
+  const c = candles([
+    [100, 100.5], // 0
+    [100.5, 101.5], // 1 → BUY: stop 100.5, target 103.5
+    [101.5, 103.0, 103.0, 101.45], // 2 runs to +1.5 R
+    [103.0, 101.9, 103.0, 101.8], // 3 back: with protect (1 R / 1 R) the stop is at 102.0 → closed here
+    [101.9, 102.0], // 4 bull 0.1
+    [102.0, 102.5], // 5 bull 0.5 > 0.1 → BUY again (only if the first trade is over)
+    [102.5, 102.6], // 6 the second buy opens here
+  ]);
+
+  it("protect profits: the script frees up when the trailing stop closes the trade, as the backtest does", async () => {
+    const plain = runScript(qjs, code, c, P);
+    expect([...plain.levels.keys()]).toEqual([1]); // without it, the first buy is still open: setup 5 skipped
+    const trail = { start_r: 1, distance_r: 1 };
+    const run = runScript(qjs, code, c, P, ctx({ trail }));
+    expect([...run.levels.keys()]).toEqual([1, 5]);
+
+    const def = await scriptStrategy(code, "t", ctx({ trail }));
+    const bt = runBacktest(c, def, P, { initialBalance: 10_000, riskPercent: 1, riskAmount: 20, costPercent: 0, timeframe: 900, trail });
+    expect(bt.trades.map((t) => t.reason)).toEqual(["trail", "end"]);
+  });
+
+  it("no take profit: the script doesn't drop the trade at its own target", () => {
+    // Bar 2 passes the 103.5 target; bar 3 comes back to 101.35.
+    const up = candles([[100, 100.5], [100.5, 101.5], [101.5, 101.4, 104.1, 101.35], [101.4, 101.45]]);
+    expect([...runScript(qjs, code, up, P).positions]).toEqual([0, 1, 0, 0]);
+    // No target: still held on bar 2, then closed on bar 3 by its trailing stop (104.1 − 1 = 103.1).
+    expect([...runScript(qjs, code, up, P, ctx({ trail: { start_r: 1, distance_r: 1, no_target: true } })).positions]).toEqual([0, 1, 1, 0]);
+  });
+
+  it("Deriv: a stop beyond price ÷ multiplier ends the script's trade where Deriv would", () => {
+    // ×200 at ~101.5 → the trade closes ~0.51 away, before the 1-point stop.
+    const dip = candles([[100, 100.5], [100.5, 101.5], [101.5, 101.2, 101.6, 100.9], [101.2, 101.3], [101.3, 101.9]]);
+    expect([...runScript(qjs, code, dip, P).levels.keys()]).toEqual([1]);
+    expect([...runScript(qjs, code, dip, P, ctx({ multiplier: 200 })).levels.keys()]).toEqual([1, 4]);
+  });
+
+  it("trading hours: a setup whose trade would open outside them is skipped, not held", () => {
+    // Bars are 15 minutes apart from Friday 2027-01-15 08:00 UTC. Hours 08:00–09:00: setup 1 opens at
+    // 08:30, setup 5 would open at 09:30 — skipped, even though protect profits freed the bot for it.
+    const trail = { start_r: 1, distance_r: 1 };
+    const fri = { from: 8, to: 9, days: [5], tz: "UTC" };
+    expect([...runScript(qjs, code, c, P, ctx({ trail, hours: fri })).levels.keys()]).toEqual([1]);
+    const none = runScript(qjs, code, c, P, ctx({ trail, hours: { ...fri, days: [1] } })); // Mondays only
+    expect(none.levels.size).toBe(0);
+    expect([...none.positions].every((p) => p === 0)).toBe(true);
+  });
+});

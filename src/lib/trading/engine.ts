@@ -680,6 +680,9 @@ export async function scriptContext(bot: Bot): Promise<ScriptContext> {
       ? { broker: broker.kind, balance: broker.balance, equity: broker.equity, currency: broker.currency, is_demo: broker.is_demo }
       : null,
     broker_position: open ? { side: open.side, entry: open.entry_price, size: open.size, pnl: open.pnl } : null,
+    trail: bot.trail ?? null,
+    multiplier: broker?.kind === "deriv" ? validMultiplier(bot.symbol, bot.deriv_multiplier) : null,
+    hours: bot.trading_hours ?? null,
   };
 }
 

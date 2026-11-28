@@ -8,6 +8,7 @@ import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, Tr
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 import { EquityChart } from "@/components/app/equity-chart";
+import { TrailField } from "@/components/app/trail-field";
 import { tidyCode } from "@/lib/strategies/tidy-code";
 import { MultiplierField, RiskField, riskBody, riskError, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
 import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
@@ -19,6 +20,7 @@ import type { BacktestResult } from "@/lib/strategies/backtest";
 import { SCRIPT_REFERENCE, SCRIPT_TEMPLATES, looksLikePine } from "@/lib/strategies/script-templates";
 import { DATA_SYMBOLS, TIMEFRAMES, timeframeLabel } from "@/lib/trading/symbols";
 import type { PublicBroker } from "@/lib/trading/state";
+import { sanitizeTrail, type TrailConfig } from "@/lib/trading/trail";
 import type { Bot } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +57,8 @@ function ScriptStudio() {
   const [rr, setRr] = useState(2);
   // Shared by Test and Create bot, so a test risks what the bot will (e.g. Fixed $20 per trade).
   const [risk, setRisk] = useState<RiskValue>(riskValueOf());
+  // Protect profits, also shared: the test trails winners exactly as the bot will.
+  const [trail, setTrail] = useState<TrailConfig | null>(null);
   const [dataSymbol, setDataSymbol] = useState("R_75");
   const [timeframe, setTimeframe] = useState(3600);
   const [busy, setBusy] = useState<"check" | "test" | "deploy" | null>(null);
@@ -76,6 +80,7 @@ function ScriptStudio() {
     setRr(params.rr ?? 2);
     setDataSymbol(editing.data_symbol);
     setRisk(riskValueOf(editing));
+    setTrail(editing.trail ?? null);
     setTimeframe(editing.timeframe);
     setCheck(null);
     setTest(null);
@@ -95,7 +100,7 @@ function ScriptStudio() {
     setBusy(kind);
     setError(null);
     try {
-      const body = { code, params, ...(kind === "test" ? { data_symbol: dataSymbol, timeframe, ...riskBody(risk) } : {}) };
+      const body = { code, params, ...(kind === "test" ? { data_symbol: dataSymbol, timeframe, ...riskBody(risk), trail } : {}) };
       const res = await api<CheckResult | TestResult>("/api/scripts/test", "POST", body);
       applyInputs(res.inputs);
       setCheck(res);
@@ -114,7 +119,11 @@ function ScriptStudio() {
     setBusy("deploy");
     setError(null);
     try {
-      await api(`/api/bots/${editing.id}`, "PATCH", { script: code, strategy_params: params });
+      await api(`/api/bots/${editing.id}`, "PATCH", {
+        script: code,
+        strategy_params: params,
+        ...(JSON.stringify(trail) !== JSON.stringify(editing.trail ?? null) ? { trail } : {}),
+      });
       await refresh();
       toast(`${editing.name} updated — the new script runs from the next candle`, "success");
     } catch (e) {
@@ -230,6 +239,9 @@ function ScriptStudio() {
                   <div className="col-span-2">
                     <RiskField value={risk} onChange={setRisk} />
                   </div>
+                  <div className="col-span-2">
+                    <TrailField value={trail} onChange={setTrail} riskAmount={risk.mode === "amount" ? risk.amount : null} />
+                  </div>
                   {Object.keys(inputs).map((k) => (
                     <Field key={k} label={k}>
                       <Input type="number" step="any" value={values[k] ?? inputs[k]} onChange={(e) => setValues({ ...values, [k]: Number(e.target.value) })} />
@@ -280,6 +292,8 @@ function ScriptStudio() {
               onTimeframe={setTimeframe}
               risk={risk}
               onRisk={setRisk}
+              trail={trail}
+              onTrail={setTrail}
               disabled={disabled}
               onError={setError}
               onBusy={(b) => setBusy(b ? "deploy" : null)}
@@ -506,6 +520,8 @@ function DeployPanel({
   onTimeframe,
   risk,
   onRisk,
+  trail,
+  onTrail,
   disabled,
   busy,
   onBusy,
@@ -520,6 +536,8 @@ function DeployPanel({
   onTimeframe: (v: number) => void;
   risk: RiskValue;
   onRisk: (r: RiskValue) => void;
+  trail: TrailConfig | null;
+  onTrail: (t: TrailConfig | null) => void;
   disabled: boolean;
   busy: boolean;
   onBusy: (b: boolean) => void;
@@ -585,6 +603,7 @@ function DeployPanel({
         timeframe,
         ...riskBody(risk),
         deriv_multiplier: multiplier,
+        trail,
         price_source: isMt5 ? priceSource : "deriv",
         start: startNow,
       });
@@ -665,6 +684,7 @@ function DeployPanel({
           </Field>
         )}
         <RiskField value={risk} onChange={onRisk} currency={broker?.currency} />
+        <TrailField value={trail} onChange={onTrail} riskAmount={risk.mode === "amount" ? risk.amount : null} currency={broker?.currency} />
         {!isMt5 && (
           <MultiplierField symbol={dataSymbol} value={multiplier} onChange={setMultiplier} label="Multiplier" />
         )}
@@ -679,7 +699,7 @@ function DeployPanel({
           Start trading right away
         </label>
         {startNow && killOn && <p className="text-xs text-amber-300">The kill switch is on, so the bot will be created paused.</p>}
-        <Button onClick={deploy} disabled={disabled || !brokerId || (isMt5 && !mt5Symbol.trim()) || Boolean(riskError(risk))} className="h-12 w-full text-[15px] font-bold">
+        <Button onClick={deploy} disabled={disabled || !brokerId || (isMt5 && !mt5Symbol.trim()) || Boolean(riskError(risk)) || (trail !== null && !sanitizeTrail(trail))} className="h-12 w-full text-[15px] font-bold">
           <Rocket /> {busy ? "Creating…" : startNow ? "Create and start bot" : "Create bot (paused)"}
         </Button>
     </div>

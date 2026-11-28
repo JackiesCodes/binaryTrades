@@ -11,7 +11,7 @@ describe("trailing stop rule", () => {
   const buy = { side: "buy" as const, entry: 100, firstStop: 80 }; // 1 R = 20
 
   it("waits until the trade is start × R in profit, then moves to break-even and follows", () => {
-    let s = { best: 100, stop: null as number | null };
+    let s: { best: number; stop: number | null; hit?: boolean } = { best: 100, stop: null };
     s = trailStep(buy, BE, s, at(115)); // +15: not yet
     expect(s).toMatchObject({ best: 115, stop: null, hit: false });
     s = trailStep(buy, BE, s, at(120)); // +20 = 1 R: stop to entry

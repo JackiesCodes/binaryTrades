@@ -5,6 +5,7 @@ import { derivCandles } from "@/lib/brokers/deriv";
 import { withUser } from "@/lib/auth/users";
 import { jsonError, zodError } from "@/lib/http";
 import { runBacktest } from "@/lib/strategies/backtest";
+import { sanitizeTrail } from "@/lib/trading/trail";
 import { MAX_SCRIPT_LENGTH, ScriptError, checkScript, runScriptAlert, scriptStrategy } from "@/lib/strategies/script";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ const schema = z.object({
   /** Fixed risk per trade, as a bot set to "Fixed $" (replaces risk_percent). */
   risk_amount: z.coerce.number().positive().max(1_000_000).nullable().optional(),
   cost_percent: z.coerce.number().min(0).max(1).default(0.02),
+  /** The bot's Protect profits setting, so the test trails winners as the bot will. */
+  trail: z.unknown().optional(),
   /** A sample TradingView alert to run through onAlert(alert, i) on the latest candles. */
   alert: z.record(z.unknown()).optional(),
 });
@@ -80,8 +83,15 @@ export const POST = withUser(async (_user, request) => {
   if (candles.length < 300) return jsonError(422, "NOT_ENOUGH_HISTORY");
 
   try {
-    const def = await scriptStrategy(input.code);
+    const trail = sanitizeTrail(input.trail);
+    const def = await scriptStrategy(input.code, "Script", {
+      live: false,
+      account: { broker: "test", balance: 10000, equity: 10000, currency: "USD", is_demo: true },
+      broker_position: null,
+      trail,
+    });
     const result = runBacktest(candles, def, params, {
+      trail,
       initialBalance: 10000,
       riskPercent: input.risk_percent,
       riskAmount: input.risk_amount ?? undefined,

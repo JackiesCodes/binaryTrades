@@ -8,6 +8,7 @@ import { defaultParams, getStrategy } from "@/lib/strategies";
 import { MAX_SCRIPT_LENGTH, SCRIPT_STRATEGY_ID, ScriptError, checkScript } from "@/lib/strategies/script";
 import { allowedMultipliers, defaultMultiplier, guessDataSymbol, multiplierMessage } from "@/lib/trading/symbols";
 import { forUser, getSettings, log, newId, nowIso } from "@/lib/trading/store";
+import { sanitizeTrail } from "@/lib/trading/trail";
 import type { Bot } from "@/lib/trading/types";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ const botInputSchema = z.object({
   script: z.string().max(MAX_SCRIPT_LENGTH).optional(),
   /** Start trading straight away instead of creating the bot paused. */
   start: z.boolean().optional(),
+  /** Protect profits: { start_r, distance_r, no_target }, or null for off. */
+  trail: z.unknown().optional(),
 });
 
 export const GET = withUser(async (user) => NextResponse.json(await forUser(user.id).bots.all({ order: { field: "created_at" } })));
@@ -83,6 +86,7 @@ export const POST = withUser(async (user, request) => {
     risk_percent: input.risk_percent,
     risk_amount: input.risk_amount ?? null,
     deriv_multiplier: multiplier,
+    trail: sanitizeTrail(input.trail),
     magic: nextMagic(existing),
     webhook_passphrase: randomToken(18),
     last_bar_epoch: null,

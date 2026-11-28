@@ -140,7 +140,8 @@ function onBar(i) {
 //
 // Only ONE trade is ever open. While it runs, every new setup (buy or sell) is ignored. As soon as
 // it hits its stop loss or take profit, the bot looks for the next setup in either direction.
-// It never closes a trade early: each trade ends at its stop or its target.
+// It never closes a trade early: each trade ends at its stop or its target (or, with the bot's
+// Protect profits on, at its trailing stop — the script follows that too, so tests match live).
 //
 // Stop and target are fixed distances from the entry: stop_distance, and stop_distance × reward_ratio.
 // The money comes from the bot's Risk setting. Gold, risk "Fixed $" 20, stop_distance 20,
@@ -170,14 +171,27 @@ const body = (k) => Math.abs(close[k] - open[k]);
 
 // The script follows its own trade candle by candle (stop / target hit or not), so backtests
 // match live trading. Live, the trade at the broker is the final word on the latest candle.
-let trade = null; // { side: "buy" | "sell", entryIndex, stop, target }
+let trade = null; // { side: "buy" | "sell", entryIndex, entry, r, stop, target, best, trail }
 
 function updateTrade(i) {
   if (!trade || trade.entryIndex >= i) return;
-  // Checked like the backtester: the stop first when a candle touches both.
-  const hitStop = trade.side === "buy" ? low[i] <= trade.stop : high[i] >= trade.stop;
-  const hitTarget = trade.side === "buy" ? high[i] >= trade.target : low[i] <= trade.target;
-  if (hitStop || hitTarget) trade = null;
+  const dir = trade.side === "buy" ? 1 : -1;
+  // Checked like the backtester: the trailing stop first, then the stop, then the target.
+  const hitTrail = trade.trail !== null && (dir === 1 ? low[i] <= trade.trail : high[i] >= trade.trail);
+  const hitStop = dir === 1 ? low[i] <= trade.stop : high[i] >= trade.stop;
+  const hitTarget = trade.target !== null && (dir === 1 ? high[i] >= trade.target : low[i] <= trade.target);
+  if (hitTrail || hitStop || hitTarget) {
+    trade = null;
+    return;
+  }
+  if (protect) {
+    // Protect profits: once start_r × the stop distance in profit, the stop follows distance_r behind.
+    trade.best = dir === 1 ? Math.max(trade.best, high[i]) : Math.min(trade.best, low[i]);
+    if ((trade.best - trade.entry) * dir >= protect.start_r * trade.r) {
+      const next = trade.best - dir * protect.distance_r * trade.r;
+      if (trade.trail === null || (next - trade.trail) * dir > 0) trade.trail = next;
+    }
+  }
 }
 
 function onBar(i) {
@@ -185,7 +199,7 @@ function onBar(i) {
   const latestLive = live && i === bars.length - 1;
   if (latestLive) {
     // The broker knows best whether a trade is still open (fills, slippage, gaps).
-    trade = brokerPosition ? { side: brokerPosition.side, entryIndex: i, stop: NaN, target: NaN } : null;
+    trade = brokerPosition ? { side: brokerPosition.side, entryIndex: i, entry: brokerPosition.entry, r: stopDistance, stop: NaN, target: null, best: NaN, trail: null } : null;
   }
   if (i < 1) return;
 
@@ -203,6 +217,7 @@ function onBar(i) {
 
   if (signal === "buy" && !wantBuys) { reason = "buy signal, but this bot only sells"; signal = null; }
   if (signal === "sell" && !wantSells) { reason = "sell signal, but this bot only buys"; signal = null; }
+  if (signal && !trade && !canOpen(i)) { reason = signal + " signal, but outside the bot's trading hours"; signal = null; }
   if (signal && trade) {
     reason = signal + " signal, but a " + trade.side + " is still open (one trade at a time: waits for its stop or target)";
     signal = null;
@@ -221,7 +236,18 @@ function onBar(i) {
     const stop = entry - dir * stopDistance;
     const target = entry + dir * stopDistance * rewardRatio;
     if (!(stop > 0) || !(target > 0)) return trade ? undefined : "close"; // distance too big for this price
-    trade = { side: signal, entryIndex: i, stop, target };
+    // On Deriv a trade also closes once it has lost its stake (price ÷ multiplier away).
+    const cap = maxStopDistance(entry);
+    trade = {
+      side: signal,
+      entryIndex: i,
+      entry,
+      r: stopDistance,
+      stop: stopDistance > cap ? entry - dir * cap : stop,
+      target: protect && protect.no_target ? null : target,
+      best: entry,
+      trail: null,
+    };
     if (latestLive) console.log("  stop " + stop.toFixed(5) + " · target " + target.toFixed(5));
     // restart: a fresh trade even when the last one in this direction just ended.
     return { action: signal, stop, target, restart: true };
@@ -262,6 +288,8 @@ export const SCRIPT_REFERENCE: Array<{ name: string; detail: string }> = [
   { name: "position", detail: "{ side: \"long\" | \"short\" | null, entryIndex, entryPrice, barsHeld } — the script's own position." },
   { name: "account", detail: "{ broker, balance, equity, currency, is_demo } of the bot's account (a $10,000 demo in tests)." },
   { name: "brokerPosition, live", detail: "Live only: this bot's open trade at the broker ({ side, entry, size, pnl }) or null; live is false in tests." },
+  { name: "protect", detail: "The bot's Protect profits setting ({ start_r, distance_r, no_target }) or null — for scripts that follow their own trade." },
+  { name: "maxStopDistance(price) canOpen(i)", detail: "Deriv: the farthest a stop can be (price ÷ multiplier; Infinity elsewhere). canOpen(i): false outside the bot's trading hours." },
   { name: "console.log(...)", detail: "Shows up under Output when you test the script." },
 ];
 
