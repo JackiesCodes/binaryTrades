@@ -369,7 +369,8 @@ function lineOf(error: string | null): number | null {
 
 function CodeEditor({ value, onChange, errorLine }: { value: string; onChange: (v: string) => void; errorLine: number | null }) {
   const gutter = useRef<HTMLDivElement>(null);
-  const lines = value.split("\n").length;
+  // A final newline doesn't start a line of its own.
+  const lines = Math.max(1, value.split("\n").length - (value.endsWith("\n") ? 1 : 0));
 
   // Code copied from a chat, a document or a web page often brings blank lines at the end and
   // invisible characters (non-breaking or zero-width spaces) that break the script. Paste clean text.
@@ -399,16 +400,21 @@ function CodeEditor({ value, onChange, errorLine }: { value: string; onChange: (
 
   return (
     <div className="flex overflow-hidden rounded-xl border border-white/10 bg-black/30 focus-within:border-profit/40">
-      <div
-        ref={gutter}
-        aria-hidden
-        className="select-none overflow-hidden border-r border-white/5 py-3 pl-2 pr-2 text-right font-mono text-xs leading-5 text-muted-foreground/60"
-      >
-        {Array.from({ length: lines }, (_, i) => (
-          <div key={i} className={cn(errorLine === i + 1 && "rounded bg-loss/30 text-loss")}>
-            {i + 1}
-          </div>
-        ))}
+      {/* The line numbers sit in a box exactly as tall as the editor (they used to be as tall as the
+          whole script, so a long script showed numbers running on below the editor). */}
+      <div aria-hidden className="relative shrink-0 border-r border-white/5" style={{ width: `calc(${String(lines).length}ch + 1.25rem)` }}>
+        <div
+          ref={gutter}
+          className="absolute inset-0 select-none overflow-hidden py-3 pl-2 pr-2 text-right font-mono text-xs leading-5 text-muted-foreground/60"
+        >
+          {Array.from({ length: lines }, (_, i) => (
+            <div key={i} className={cn(errorLine === i + 1 && "rounded bg-loss/30 text-loss")}>
+              {i + 1}
+            </div>
+          ))}
+          {/* Room to scroll the last number level with the last line, past the editor's scrollbar. */}
+          <div className="h-6" />
+        </div>
       </div>
       <textarea
         value={value}
@@ -425,7 +431,7 @@ function CodeEditor({ value, onChange, errorLine }: { value: string; onChange: (
         autoCorrect="off"
         aria-label="Strategy script"
         wrap="off"
-        className="scrollbar-thin h-[22rem] min-w-0 flex-1 resize-y bg-transparent p-3 font-mono text-base leading-5 text-foreground outline-none sm:h-[26rem] sm:text-xs"
+        className="scrollbar-thin h-[22rem] min-w-0 flex-1 resize-y bg-transparent p-3 font-mono text-base leading-5 text-foreground outline-none sm:h-[26rem] sm:text-xs sm:leading-5"
       />
     </div>
   );
