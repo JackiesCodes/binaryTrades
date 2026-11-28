@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, TriangleAlert, Webhook } from "lucide-react";
+import { BookOpen, ClipboardPaste, Code2, FileUp, FlaskConical, Rocket, Save, Trash2, TriangleAlert, Webhook } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
 import { EquityChart } from "@/components/app/equity-chart";
-import { MultiplierField, RiskField, riskBody, riskError, riskValueOf, type RiskValue } from "@/components/app/bot-parts";
+import { tidyCode } from "@/lib/strategies/tidy-code";
+import { MultiplierField, RiskField, riskBody, riskError, riskValueOf, useBotActions, type RiskValue } from "@/components/app/bot-parts";
 import { AccountKindBadge, EmptyState, Field, MetricsGrid, PageSkeleton, Panel, selectClass } from "@/components/app/widgets";
 import { AsideTitle, FieldBox, KV, Strip, Switcher, Workspace } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
@@ -370,6 +371,22 @@ function CodeEditor({ value, onChange, errorLine }: { value: string; onChange: (
   const gutter = useRef<HTMLDivElement>(null);
   const lines = value.split("\n").length;
 
+  // Code copied from a chat, a document or a web page often brings blank lines at the end and
+  // invisible characters (non-breaking or zero-width spaces) that break the script. Paste clean text.
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const raw = e.clipboardData.getData("text/plain");
+    if (!raw) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const { selectionStart: start, selectionEnd: end } = el;
+    const clean = tidyCode(raw);
+    const atEnd = !value.slice(end).trim();
+    const next = atEnd ? tidyCode(value.slice(0, start) + clean) : value.slice(0, start) + clean + value.slice(end);
+    onChange(next);
+    const caret = Math.min(start + clean.length, next.length);
+    requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Tab" || e.shiftKey) return;
     e.preventDefault();
@@ -397,6 +414,11 @@ function CodeEditor({ value, onChange, errorLine }: { value: string; onChange: (
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        onBlur={() => {
+          const tidy = tidyCode(value);
+          if (tidy !== value) onChange(tidy);
+        }}
         onScroll={(e) => gutter.current && (gutter.current.scrollTop = e.currentTarget.scrollTop)}
         spellCheck={false}
         autoCapitalize="off"
@@ -692,6 +714,8 @@ function Reference() {
 }
 
 function ScriptBotRow({ bot, broker, active }: { bot: Bot; broker: PublicBroker | undefined; active: boolean }) {
+  const { busy, remove } = useBotActions(bot);
+  const router = useRouter();
   return (
     <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] py-2.5 last:border-0">
       <div className="min-w-0">
@@ -702,9 +726,25 @@ function ScriptBotRow({ bot, broker, active }: { bot: Bot; broker: PublicBroker 
           <span className={bot.status === "running" ? "text-profit" : "text-gold"}>{bot.status === "running" ? "Running" : "Paused"}</span>
         </div>
       </div>
-      <Button size="sm" variant={active ? "default" : "outline"} asChild>
-        <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit</Link>
-      </Button>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button size="sm" variant={active ? "default" : "outline"} asChild>
+          <Link href={`/dashboard/scripts?bot=${bot.id}`}>Edit</Link>
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          className="text-muted-foreground hover:bg-loss/10 hover:text-loss max-lg:h-10"
+          aria-label={`Delete ${bot.name}`}
+          title="Delete bot"
+          onClick={async () => {
+            // Deleting the bot that's open in the editor: leave the editor on a blank slate.
+            if ((await remove()) && active) router.replace("/dashboard/scripts");
+          }}
+        >
+          <Trash2 />
+        </Button>
+      </div>
     </div>
   );
 }

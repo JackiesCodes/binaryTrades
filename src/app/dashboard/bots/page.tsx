@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bot as BotIcon, ExternalLink, Pause, Play } from "lucide-react";
+import { Bot as BotIcon, ExternalLink, Pause, Play, Trash2 } from "lucide-react";
 
 import { BotForm, botKind, botStats, riskLabel, useBotActions } from "@/components/app/bot-parts";
 import { useDashboard } from "@/components/app/dashboard-context";
@@ -114,7 +114,7 @@ function BotsPageInner() {
 
 function BotRow({ bot }: { bot: Bot }) {
   const { state } = useDashboard();
-  const { busy, broker, patch } = useBotActions(bot);
+  const { busy, broker, patch, remove } = useBotActions(bot);
   if (!state) return null;
   const s = botStats(bot, state.open_trades, state.closed_trades);
   const kind = botKind(bot);
@@ -185,6 +185,16 @@ function BotRow({ bot }: { bot: Bot }) {
           <ExternalLink className="h-4 w-4" />
           <span className="text-xs md:hidden">Open</span>
         </Link>
+        <button
+          onClick={() => void remove()}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded-lg p-1.5 max-lg:min-h-10 max-lg:px-3 hover:bg-loss/10 hover:text-loss disabled:opacity-40"
+          aria-label={`Delete ${bot.name}`}
+          title="Delete bot"
+        >
+          <Trash2 className="h-4 w-4" />
+          <span className="text-xs md:hidden">Delete</span>
+        </button>
       </div>
     </article>
   );
