@@ -24,6 +24,8 @@ export interface BotPreview {
   trades: BotPreviewTrade[];
   open: BotPreviewTrade | null;
   currency: string;
+  /** Something about how this bot will really trade that the user should know (e.g. Deriv's stake limit). */
+  warning?: string | null;
 }
 
 export interface BotMark {

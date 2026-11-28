@@ -68,6 +68,29 @@ describe("/api/bots/:id/preview", () => {
     expect(botNowText(p, (n) => n.toFixed(2))).toMatch(/^in a SELL since .* · stop 100\.90 · target 97\.40$/);
   });
 
+  it("Deriv: a stop further than price ÷ multiplier closes there (the stake runs out), with a warning", async () => {
+    const ann = await createUser({ email: "ann@example.com", password: "a long password" });
+    await getStore().brokers.insert({ id: "d1", user_id: ann.id, kind: "deriv", label: "Deriv demo", is_demo: true, equity: 10_000, balance: 10_000, currency: "USD", status: "connected" } as never);
+    // Gold allows ×100: price ~100 ÷ 100 = 1 point at most, but the bot's stop is 3 away.
+    await getStore().bots.insert(bot({ user_id: ann.id, broker_account_id: "d1", deriv_multiplier: 100, strategy: { id: "script", params: { stop_distance: 3, reward_ratio: 2.5, atr_mult: 2, rr: 0 }, code } }));
+    cookie = (await createSessionToken(ann.id, ann.session_version)).value;
+    const p = (await (await GET(new Request("http://localhost/x"), { params: { id: "b1" } })).json()) as BotPreview;
+    const buy = p.trades[0]!;
+    expect(buy.side).toBe("buy");
+    expect(buy.entry - buy.stop).toBeCloseTo(buy.entry / 100, 6); // closes 1 away, not 3
+    expect(buy.target! - buy.entry).toBeCloseTo(7.5, 6); // the target is unchanged
+    expect(p.warning).toMatch(/at ×100, a trade can't lose more than its stake, so it closes about 1\.00 away, before its 3 stop .* set stop_distance to 0\.79 or less/);
+  });
+
+  it("no warning when the stop fits", async () => {
+    const ann = await createUser({ email: "ann@example.com", password: "a long password" });
+    await getStore().brokers.insert({ id: "d1", user_id: ann.id, kind: "deriv", label: "Deriv demo", is_demo: true, equity: 10_000, balance: 10_000, currency: "USD", status: "connected" } as never);
+    await getStore().bots.insert(bot({ user_id: ann.id, broker_account_id: "d1", deriv_multiplier: 100, strategy: { id: "script", params: { stop_distance: 0.5, reward_ratio: 2.5, atr_mult: 2, rr: 0 }, code } }));
+    cookie = (await createSessionToken(ann.id, ann.session_version)).value;
+    const p = (await (await GET(new Request("http://localhost/x"), { params: { id: "b1" } })).json()) as BotPreview;
+    expect(p.warning).toBeNull();
+  });
+
   it("respects the bot's trading hours", async () => {
     const ann = await createUser({ email: "ann@example.com", password: "a long password" });
     const h = new Date().getUTCHours();

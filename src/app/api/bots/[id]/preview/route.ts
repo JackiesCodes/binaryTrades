@@ -8,6 +8,7 @@ import { SCRIPT_STRATEGY_ID, ScriptError, scriptStrategy } from "@/lib/strategie
 import { botCandles } from "@/lib/trading/engine";
 import { inTradingHours } from "@/lib/trading/hours";
 import { forUser } from "@/lib/trading/store";
+import { validMultiplier } from "@/lib/trading/symbols";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -52,6 +53,9 @@ export const GET = withUser<{ params: { id: string } }>(async (user, _request, {
 
   const broker = bot.broker_account_id ? await store.brokers.get(bot.broker_account_id) : null;
   const hours = bot.trading_hours ?? null;
+  // Deriv: a multiplier trade can't lose more than its stake, so it closes price ÷ multiplier away
+  // even when the bot's stop is further. Show that, as the live bot would trade.
+  const multiplier = broker?.kind === "deriv" ? validMultiplier(bot.symbol, bot.deriv_multiplier) : null;
   const result = runBacktest(candles, def, bot.strategy.params ?? {}, {
     initialBalance: broker?.equity && broker.equity > 0 ? broker.equity : 10_000,
     riskPercent: bot.risk_percent,
@@ -59,7 +63,20 @@ export const GET = withUser<{ params: { id: string } }>(async (user, _request, {
     costPercent: 0.02,
     timeframe: bot.timeframe,
     canOpen: hours ? (epoch) => inTradingHours(hours, new Date(epoch * 1000)) : undefined,
+    stopCap: multiplier ? (price) => price / multiplier : undefined,
   });
+  // Warn when the bot's stop is further than Deriv lets a trade go at this multiplier.
+  let warning: string | null = null;
+  if (multiplier) {
+    const want = Number(bot.strategy.params?.stop_distance);
+    const cap = lastBar.close / multiplier;
+    if (Number.isFinite(want) && want > cap * 1.001) {
+      const suggest = Math.floor(cap * 0.8 * 100) / 100;
+      warning =
+        `On Deriv at ×${multiplier}, a trade can't lose more than its stake, so it closes about ${cap.toFixed(2)} away, before its ` +
+        `${want} stop (and loses less than the bot's risk). For the full stop, set stop_distance to ${suggest} or less.`;
+    }
+  }
   const last = result.trades.at(-1);
   return NextResponse.json(
     {
@@ -70,6 +87,7 @@ export const GET = withUser<{ params: { id: string } }>(async (user, _request, {
       // Still open at the last candle: what the strategy holds now.
       open: last && last.reason === "end" ? last : null,
       currency: broker?.currency ?? "USD",
+      warning,
     },
     { headers: { "cache-control": "private, no-store" } },
   );

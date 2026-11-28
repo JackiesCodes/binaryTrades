@@ -13,6 +13,12 @@ export interface BacktestOptions {
   toIndex?: number;
   /** A fixed amount risked per trade (like a bot set to "Fixed $"); replaces riskPercent when set. */
   riskAmount?: number;
+  /**
+   * The furthest a stop can be from the entry at this price. Deriv multiplier trades can't lose more
+   * than their stake, so they close at price ÷ multiplier away even when the stop is further: the
+   * position keeps its size and its target, but stops out sooner.
+   */
+  stopCap?: (price: number) => number;
   /** Whether a trade may be opened on the bar starting at this epoch (e.g. a bot's trading hours). Closing is always allowed. */
   canOpen?: (epoch: number) => boolean;
 }
@@ -121,10 +127,12 @@ export function runBacktest(
       const stopDist = own.stop !== null ? Math.abs(bar.open - own.stop) : atr[i - 1]! * atrMult;
       if (Number.isFinite(stopDist) && stopDist > 0 && balance > 0) {
         const risk = options.riskAmount && options.riskAmount > 0 ? options.riskAmount : (balance * options.riskPercent) / 100;
+        const cap = options.stopCap?.(bar.open);
+        const stopAt = own.stop ?? bar.open - dir * stopDist;
         pos = {
           dir,
           entry: bar.open,
-          stop: own.stop ?? bar.open - dir * stopDist,
+          stop: cap !== undefined && cap > 0 && Math.abs(bar.open - stopAt) > cap ? bar.open - dir * cap : stopAt,
           target: own.target ?? (rr > 0 ? bar.open + dir * rr * stopDist : null),
           units: risk / stopDist,
           risk,

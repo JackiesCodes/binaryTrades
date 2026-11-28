@@ -844,6 +844,7 @@ export function MarketsView() {
                       </p>
                     </>
                   )}
+                  {preview?.warning && <p className="max-w-[20rem] leading-snug text-[var(--mk-accent)]">{preview.warning}</p>}
                   {!timeframeForBot(viewBot.timeframe) && (
                     <p className="text-[var(--mk-muted)]">The chart has no {Math.round(viewBot.timeframe / 60)}-minute candles: shown on these.</p>
                   )}
@@ -859,6 +860,7 @@ export function MarketsView() {
                   >
                     <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--mk-accent)]" aria-hidden />
                     <span className="truncate">{viewBot.name}</span>
+                    {preview?.warning && <span className="shrink-0 font-bold text-[var(--mk-accent)]" title={preview.warning}>!</span>}
                     {preview && (
                       <span className={cn("shrink-0 font-normal", preview.open ? (preview.open.side === "buy" ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]") : "text-[var(--mk-muted)]")}>
                         · {preview.open ? `${preview.open.side.toUpperCase()} open` : "waiting"}
