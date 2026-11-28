@@ -40,6 +40,8 @@ interface Prefs {
   showTrades: boolean;
   /** "Bot on chart": the bot whose strategy trades are drawn (null = none). */
   botView?: string | null;
+  /** Show a bot automatically on markets it trades (off once you choose "Bot on chart: off"). */
+  botAuto?: boolean;
 }
 
 function readPrefs(): Prefs {
@@ -178,7 +180,10 @@ export function MarketsView() {
     () => (state && meta?.provider === "deriv" ? state.bots.filter((b) => b.data_symbol === meta.code) : []),
     [state, meta],
   );
-  const viewBot = botsHere.find((b) => b.id === prefs?.botView) ?? null;
+  // The bot you picked; otherwise (unless you switched it off) the market's own bot, a running one first.
+  const viewBot =
+    botsHere.find((b) => b.id === prefs?.botView) ??
+    (prefs?.botAuto === false ? null : (botsHere.find((b) => b.status === "running" && b.strategy) ?? botsHere.find((b) => b.strategy) ?? null));
   const [preview, setPreview] = useState<BotPreview | null>(null);
   // The floating bot card starts small on phones, so it doesn't cover the candles.
   const [botCardOpen, setBotCardOpen] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches);
@@ -673,15 +678,18 @@ export function MarketsView() {
           )}
         </button>
         {botsHere.length > 0 && (
-          <label className="shrink-0" title="Draw a bot's trades on this chart: where its strategy buys and sells, its stop and target, and what it holds now">
+          <label
+            className="shrink-0 max-lg:order-first"
+            title="Draw a bot's trades on this chart: where its strategy buys and sells, its stop and target, and what it holds now"
+          >
             <span className="sr-only">Bot on chart</span>
             <select
               value={viewBot?.id ?? ""}
-              onChange={(e) => set({ botView: e.target.value || null })}
+              onChange={(e) => set({ botView: e.target.value || null, botAuto: Boolean(e.target.value) })}
               className={cn(mobileSelect, "max-w-[11rem]", viewBot && "border-[var(--mk-accent)]")}
               style={CHEVRON}
             >
-              <option value="">Bot on chart: off</option>
+              <option value="">Bot: off</option>
               {botsHere.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -804,7 +812,7 @@ export function MarketsView() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => set({ botView: null })}
+                        onClick={() => set({ botView: null, botAuto: false })}
                         className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)] max-lg:h-9 max-lg:w-9"
                         aria-label={`Stop showing ${viewBot.name} on the chart`}
                         title="Hide the bot from the chart"
@@ -859,7 +867,7 @@ export function MarketsView() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => set({ botView: null })}
+                    onClick={() => set({ botView: null, botAuto: false })}
                     className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-r-xl text-[var(--mk-muted)] hover:text-[var(--mk-text)] max-lg:h-10 max-lg:w-9"
                     aria-label={`Stop showing ${viewBot.name} on the chart`}
                     title="Hide the bot from the chart"
