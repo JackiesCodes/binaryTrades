@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowUpDown, Bell, Zap, List, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Bell, List, Maximize2, Minimize2, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X, Zap } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -313,6 +313,22 @@ export function MarketsView() {
 
   const set = useCallback((patch: Partial<Prefs>) => setPrefs((p) => (p ? { ...p, ...patch } : p)), []);
 
+  // Full screen: the chart covers the whole window (the app's bars too). Works on every phone,
+  // unlike the browser's own fullscreen, which iPhones don't offer for web pages.
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const html = document.documentElement;
+    const before = html.style.overflow;
+    html.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setExpanded(false);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      html.style.overflow = before;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [expanded]);
+
   // Keyboard: 1–7 timeframes, / search, T theme (not while typing).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -336,6 +352,8 @@ export function MarketsView() {
         setAlertsOpen((v) => !v);
       } else if (e.key === "t" || e.key === "T") {
         setPrefs((p) => (p ? { ...p, theme: p.theme === "dark" ? "light" : "dark" } : p));
+      } else if (e.key === "f" || e.key === "F") {
+        setExpanded((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -348,14 +366,23 @@ export function MarketsView() {
 
   return (
     <div
-      className="flex h-[calc(100dvh-68px-6rem-env(safe-area-inset-bottom))] min-h-[520px] flex-col overflow-hidden rounded-[18px] border border-[var(--mk-border)] bg-[var(--mk-bg)] text-[var(--mk-text)] lg:h-[calc(100dvh-100px)]"
+      className={cn(
+        "flex flex-col overflow-hidden bg-[var(--mk-bg)] text-[var(--mk-text)]",
+        expanded
+          ? // Above the app's header and tab bar (z-30 / z-40), below sheets and dialogs (z-55+).
+            "fixed inset-0 z-[52] h-[100dvh] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]"
+          : "h-[calc(100dvh-68px-6rem-env(safe-area-inset-bottom))] min-h-[520px] rounded-[18px] border border-[var(--mk-border)] lg:h-[calc(100dvh-100px)]",
+      )}
       style={paletteVars(palette) as React.CSSProperties}
       data-theme={prefs?.theme ?? "dark"}
     >
+      {/* Wide screens (xl+): the top bar and the toolbar share one row (display: contents) to give the
+          chart more height. Narrower: two rows. It wraps rather than scrolling sideways if it must. */}
+      <div className="xl:flex xl:flex-wrap xl:items-center xl:gap-2 xl:border-b xl:border-[var(--mk-border)] xl:bg-[var(--mk-panel)] xl:px-3 xl:py-2">
       {/* Top bar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-2.5 xl:contents">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none">
-          <SymbolSearch ref={search} catalog={catalog} current={meta} loading={catalogLoading} onPick={(s) => set({ symbol: s.id })} />
+          <SymbolSearch ref={search} catalog={catalog} current={meta} loading={catalogLoading} onPick={(s) => set({ symbol: s.id })} className="xl:w-52" />
           <button
             type="button"
             onClick={() => changeWatchlist(watched ? watchlist.filter((x) => x !== symbolId) : [...watchlist, symbolId])}
@@ -369,7 +396,7 @@ export function MarketsView() {
           </button>
         </div>
 
-        <div className="order-3 flex w-full min-w-0 items-baseline gap-2 sm:order-none sm:w-auto" aria-live="off">
+        <div className="order-3 flex w-full min-w-0 items-baseline gap-2 sm:order-none sm:w-auto xl:mr-1" aria-live="off">
           <span className="font-mono text-lg font-semibold tabular-nums text-[var(--mk-text)]" aria-label="Current price">
             {formatPrice(price, decimals)}
           </span>
@@ -392,8 +419,8 @@ export function MarketsView() {
               {st.pulse && <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-60", st.dot)} />}
               <span className={cn("relative inline-flex h-2 w-2 rounded-full", st.dot)} />
             </span>
-            <span className="hidden sm:inline">{st.label}</span>
-            <span className="sr-only sm:hidden">{st.label}</span>
+            <span className="hidden sm:inline xl:hidden min-[1720px]:inline">{st.label}</span>
+            <span className="sr-only sm:hidden xl:block min-[1720px]:hidden">{st.label}</span>
           </span>
           <button
             type="button"
@@ -420,9 +447,22 @@ export function MarketsView() {
           >
             {prefs?.theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-pressed={expanded}
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-lg border text-[var(--mk-muted)] hover:text-[var(--mk-text)]",
+              expanded ? "border-[var(--mk-accent)] text-[var(--mk-text)]" : "border-[var(--mk-border)]",
+            )}
+            aria-label={expanded ? "Leave full screen (F or Esc)" : "Full screen chart (F)"}
+            title={expanded ? "Leave full screen (F or Esc)" : "Full screen (F)"}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
         </div>
 
-        <div role="radiogroup" aria-label="Timeframe" className="scrollbar-none hidden gap-1 overflow-x-auto sm:flex">
+        <div role="radiogroup" aria-label="Timeframe" className="scrollbar-none hidden gap-1 overflow-x-auto sm:flex xl:hidden min-[1720px]:flex">
           {TIMEFRAMES.map((t, i) => {
             const on = prefs?.tf === t.id;
             return (
@@ -447,9 +487,9 @@ export function MarketsView() {
       </div>
 
       {/* Toolbar: chart type and indicators */}
-      <div className="scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5">
-        {/* Phones: timeframe and chart style as compact dropdowns, on this one row. */}
-        <label className="shrink-0 sm:hidden">
+      <div className="scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-[var(--mk-border)] bg-[var(--mk-panel)] px-3 py-1.5 xl:contents">
+        {/* Phones, and the one-row layout: timeframe and chart style as compact dropdowns. */}
+        <label className="shrink-0 sm:hidden xl:block min-[1720px]:hidden">
           <span className="sr-only">Timeframe</span>
           <select value={prefs?.tf ?? "1h"} onChange={(e) => set({ tf: e.target.value as TimeframeId })} className={mobileSelect} style={CHEVRON}>
             {TIMEFRAMES.map((t) => (
@@ -459,7 +499,7 @@ export function MarketsView() {
             ))}
           </select>
         </label>
-        <label className="shrink-0 sm:hidden">
+        <label className="shrink-0 sm:hidden xl:block">
           <span className="sr-only">Chart type</span>
           <select
             value={prefs?.chartType ?? "candles"}
@@ -474,7 +514,7 @@ export function MarketsView() {
             ))}
           </select>
         </label>
-        <div role="radiogroup" aria-label="Chart type" className="hidden shrink-0 rounded-lg border border-[var(--mk-border)] p-0.5 sm:flex">
+        <div role="radiogroup" aria-label="Chart type" className="hidden shrink-0 rounded-lg border border-[var(--mk-border)] p-0.5 sm:flex xl:hidden">
           {CHART_TYPES.map((t) => {
             const on = prefs?.chartType === t.id;
             return (
@@ -551,7 +591,7 @@ export function MarketsView() {
           )}
         >
           <SlidersHorizontal className="h-4 w-4" aria-hidden />
-          Indicators
+          <span className="xl:sr-only min-[1720px]:not-sr-only">Indicators</span>
           {indicators.length > 0 && (
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{indicators.length}</span>
           )}
@@ -570,7 +610,7 @@ export function MarketsView() {
           )}
         >
           <Bell className="h-4 w-4" aria-hidden />
-          Alerts
+          <span className="xl:sr-only min-[1720px]:not-sr-only">Alerts</span>
           {waiting.length > 0 && (
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{waiting.length}</span>
           )}
@@ -592,7 +632,7 @@ export function MarketsView() {
             )}
           >
             <Zap className="h-4 w-4" aria-hidden />
-            Trade
+            <span className="xl:sr-only min-[1720px]:not-sr-only">Trade</span>
           </button>
         )}
         {marketTrades.length > 0 && (
@@ -609,12 +649,12 @@ export function MarketsView() {
             )}
           >
             <ArrowUpDown className="h-4 w-4" aria-hidden />
-            Trades
+            <span className="xl:sr-only min-[1720px]:not-sr-only">Trades</span>
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{marketTrades.length}</span>
           </button>
         )}
         {indicators.map((c) => (
-          <span key={c.id} className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--mk-border)] text-xs text-[var(--mk-text)]">
+          <span key={c.id} className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--mk-border)] text-xs text-[var(--mk-text)] xl:hidden">
             <button
               type="button"
               className="flex h-full items-center gap-1.5 pl-2 pr-1"
@@ -634,6 +674,8 @@ export function MarketsView() {
             </button>
           </span>
         ))}
+      </div>
+
       </div>
 
       <div className="relative flex min-h-0 flex-1">

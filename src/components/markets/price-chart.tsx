@@ -86,6 +86,9 @@ const VISIBLE = 140;
 const SCALE_WIDTH = 78;
 const SIGNAL_COLOR = "#E08A3C";
 
+/** Phones get a narrower price axis, so the candles get the width. */
+const baseScaleWidth = () => (typeof window !== "undefined" && window.innerWidth < 640 ? 56 : SCALE_WIDTH);
+
 function chartOptions(p: Palette): DeepPartial<ChartOptions> {
   return {
     autoSize: true,
@@ -96,10 +99,13 @@ function chartOptions(p: Palette): DeepPartial<ChartOptions> {
       vertLine: { color: p.crosshair, labelBackgroundColor: p.raised },
       horzLine: { color: p.crosshair, labelBackgroundColor: p.raised },
     },
-    rightPriceScale: { borderColor: p.border, minimumWidth: SCALE_WIDTH },
+    rightPriceScale: { borderColor: p.border, minimumWidth: baseScaleWidth() },
     timeScale: { borderColor: p.border, timeVisible: true, secondsVisible: false, rightOffset: 6 },
-    handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
-    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+    // Touch works like the mouse: drag any way to move around, pinch to zoom, drag an axis to stretch
+    // it, double-tap an axis to reset it. (Vertical drags on the chart move the chart, not the page:
+    // the Markets page is sized to the screen, so there's nothing to scroll.)
+    handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
+    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
     kineticScroll: { touch: true, mouse: false },
   };
 }
@@ -159,6 +165,8 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
 
   /** Candle index under the crosshair (null = the newest candle). */
   const [hover, setHover] = useState<number | null>(null);
+  // Scrolled back from the newest candles (shows "Back to latest").
+  const [away, setAway] = useState(false);
   const hoverFrame = useRef<number | null>(null);
   const [, setTick] = useState(0); // redraws legends after data changes
   const tickFrame = useRef<number | null>(null);
@@ -175,11 +183,11 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     });
   };
   /** Give every chart's price axis the same width, so the panes line up with the price chart. */
-  const scaleWidth = useRef(SCALE_WIDTH);
+  const scaleWidth = useRef(baseScaleWidth());
   const alignScales = () => {
     const charts = allCharts();
     if (charts.length < 2) return;
-    const widest = Math.max(SCALE_WIDTH, ...charts.map((c) => c.priceScale("right").width()));
+    const widest = Math.max(baseScaleWidth(), ...charts.map((c) => c.priceScale("right").width()));
     if (widest === scaleWidth.current) return;
     scaleWidth.current = widest;
     for (const c of charts) c.applyOptions({ rightPriceScale: { minimumWidth: widest } });
@@ -386,7 +394,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       writeIndicator(c);
     }
     scaleWidth.current = 0; // re-measure
-    for (const c of allCharts()) c.applyOptions({ rightPriceScale: { minimumWidth: SCALE_WIDTH } });
+    for (const c of allCharts()) c.applyOptions({ rightPriceScale: { minimumWidth: baseScaleWidth() } });
     // Only the bottom chart shows the time axis.
     const paneList = list
       .filter(isPane)
@@ -417,6 +425,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     volS.current = c.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
     c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     c.timeScale().subscribeVisibleLogicalRangeChange(onPaneRange(c));
+    c.timeScale().subscribeVisibleLogicalRangeChange((r) => setAway(Boolean(r && bars.current.length && r.to < bars.current.length - 3)));
     c.subscribeCrosshairMove(onCross(c));
     chart.current = c;
     const paneMap = panes.current;
@@ -665,6 +674,22 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="relative min-h-[140px] flex-1">
         <div ref={box} className="absolute inset-0" />
+        {away && (
+          <button
+            type="button"
+            onClick={() => {
+              const c = chart.current;
+              if (!c) return;
+              c.timeScale().scrollToRealTime();
+              for (const x of allCharts()) x.priceScale("right").applyOptions({ autoScale: true });
+            }}
+            className="absolute bottom-9 left-2 z-20 inline-flex h-9 items-center gap-1 rounded-full border border-[var(--mk-border)] px-3 text-xs font-semibold text-[var(--mk-text)] shadow-glass"
+            style={{ background: palette.raised }}
+            title="Back to the newest candles, prices fitted again"
+          >
+            Back to latest <span aria-hidden>→</span>
+          </button>
+        )}
         <DrawingLayer
           coords={coords}
           drawings={drawings}
