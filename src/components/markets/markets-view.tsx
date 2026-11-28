@@ -16,6 +16,8 @@ import { useMarketsState, type SyncStatus } from "@/components/markets/use-marke
 import { activeAlerts, alertHit, type PriceAlert } from "@/lib/markets/alerts";
 import { MAX_WATCHLIST } from "@/lib/markets/state";
 import { tradesForMarket } from "@/lib/markets/trade-marks";
+import { botNowText, timeframeForBot, type BotPreview, type BotPreviewTrade } from "@/lib/markets/bot-view";
+import { api } from "@/lib/client";
 import type { Trade } from "@/lib/trading/types";
 import { DRAW_TOOLS, MAX_DRAWINGS_PER_SYMBOL, type DrawTool, type Drawing } from "@/lib/markets/drawings";
 import { TIMEFRAMES, changePercent, formatPrice, isTimeframe, priceDecimals, timeframe, type TimeframeId } from "@/lib/markets/bars";
@@ -36,6 +38,8 @@ interface Prefs {
   watchOpen: boolean;
   /** Show the user's trades on the chart. */
   showTrades: boolean;
+  /** "Bot on chart": the bot whose strategy trades are drawn (null = none). */
+  botView?: string | null;
 }
 
 function readPrefs(): Prefs {
@@ -168,6 +172,42 @@ export function MarketsView() {
     });
   }, [state, meta]);
   useEffect(() => setTradeOpen(false), [symbolId]);
+
+  // --- Bot on chart: a bot's strategy run over this market's latest candles, drawn on the chart ---
+  const botsHere = useMemo(
+    () => (state && meta?.provider === "deriv" ? state.bots.filter((b) => b.data_symbol === meta.code) : []),
+    [state, meta],
+  );
+  const viewBot = botsHere.find((b) => b.id === prefs?.botView) ?? null;
+  const [preview, setPreview] = useState<BotPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const viewBotId = viewBot?.id ?? null;
+  const viewBotStamp = viewBot ? `${viewBot.id}:${viewBot.timeframe}:${JSON.stringify(viewBot.strategy?.params ?? {})}:${viewBot.risk_amount}:${viewBot.risk_percent}:${JSON.stringify(viewBot.trading_hours ?? null)}:${viewBot.strategy?.code?.length ?? 0}` : null;
+  useEffect(() => {
+    setPreview(null);
+    setPreviewError(null);
+    if (!viewBotId) return;
+    let alive = true;
+    const get = () =>
+      api<BotPreview>(`/api/bots/${viewBotId}/preview`).then(
+        (p) => alive && (setPreview(p), setPreviewError(null)),
+        (e: Error) => alive && setPreviewError(e.message),
+      );
+    void get();
+    // New candles bring new trades: refresh every minute while it's shown.
+    const t = setInterval(get, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [viewBotStamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Show the bot on its own timeframe (its trades are decided on those candles).
+  useEffect(() => {
+    if (!viewBot) return;
+    const tf = timeframeForBot(viewBot.timeframe);
+    if (tf && prefs?.tf !== tf) set({ tf });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewBotId]);
   // One panel at a time: opening Indicators or Alerts closes the Trade panel.
   useEffect(() => {
     if (panel || alertsOpen) setTradeOpen(false);
@@ -615,6 +655,24 @@ export function MarketsView() {
             <span className="rounded-full bg-[var(--mk-raised)] px-1.5 font-mono text-[10px] text-[var(--mk-text)]">{waiting.length}</span>
           )}
         </button>
+        {botsHere.length > 0 && (
+          <label className="shrink-0" title="Draw a bot's trades on this chart: where its strategy buys and sells, its stop and target, and what it holds now">
+            <span className="sr-only">Bot on chart</span>
+            <select
+              value={viewBot?.id ?? ""}
+              onChange={(e) => set({ botView: e.target.value || null })}
+              className={cn(mobileSelect, "max-w-[11rem]", viewBot && "border-[var(--mk-accent)]")}
+              style={CHEVRON}
+            >
+              <option value="">Bot on chart: off</option>
+              {botsHere.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {tradeBots.length > 0 && (
           <button
             type="button"
@@ -678,6 +736,54 @@ export function MarketsView() {
 
       </div>
 
+      {viewBot && (
+        <div className="relative flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-[var(--mk-border)] bg-[var(--mk-panel)] py-1.5 pl-3 pr-12 text-xs" role="status">
+          <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--mk-text)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--mk-accent)]" aria-hidden />
+            {viewBot.name}
+            <span className="font-normal text-[var(--mk-muted)]">
+              · {TIMEFRAMES.find((t) => t.seconds === viewBot.timeframe)?.label ?? `${Math.round(viewBot.timeframe / 60)}m`} candles
+              {viewBot.status === "running" ? " · running" : " · paused"}
+            </span>
+          </span>
+          {previewError ? (
+            <span className="text-[var(--mk-down)]">{previewError}</span>
+          ) : !preview ? (
+            <span className="text-[var(--mk-muted)]">Running its strategy over the latest candles…</span>
+          ) : (
+            <>
+              <span className="text-[var(--mk-muted)]">
+                Last {preview.range.bars.toLocaleString()} candles: {preview.metrics.trades} trade{preview.metrics.trades === 1 ? "" : "s"}
+                {preview.metrics.trades > 0 && (
+                  <>
+                    {" "}· {Math.round(preview.metrics.win_rate)}% won ·{" "}
+                    <b className={cn("font-mono font-semibold", preview.metrics.net_profit >= 0 ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]")}>
+                      {preview.metrics.net_profit >= 0 ? "+" : "−"}
+                      {Math.abs(preview.metrics.net_profit).toFixed(2)} {preview.currency}
+                    </b>
+                  </>
+                )}
+              </span>
+              <span className="text-[var(--mk-text)]">
+                Now: <b className="font-semibold">{botNowText(preview, (n) => formatPrice(n, decimals))}</b>
+              </span>
+            </>
+          )}
+          {!timeframeForBot(viewBot.timeframe) && (
+            <span className="text-[var(--mk-muted)]">(the chart has no {Math.round(viewBot.timeframe / 60)}-minute candles: shown on these)</span>
+          )}
+          <button
+            type="button"
+            onClick={() => set({ botView: null })}
+            className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)] max-lg:h-10 max-lg:w-10"
+            aria-label={`Stop showing ${viewBot.name} on the chart`}
+            title="Hide the bot from the chart"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="relative flex min-h-0 flex-1">
         {/* Chart */}
         <div className="relative min-h-0 min-w-0 flex-1">
@@ -697,6 +803,7 @@ export function MarketsView() {
               onToolDone={() => setTool(null)}
               alertLines={waiting.filter((a) => a.symbol === symbolId)}
               trades={prefs?.showTrades ? marketTrades : NO_TRADES}
+              botTrades={viewBot && preview && preview.bot.id === viewBot.id ? preview.trades : NO_BOT_TRADES}
               className="h-full"
             />
           )}
@@ -967,6 +1074,7 @@ function SyncNote({ status }: { status: SyncStatus }) {
 }
 
 const NO_TRADES: Trade[] = [];
+const NO_BOT_TRADES: BotPreviewTrade[] = [];
 
 // Compact dropdowns for phones: no browser arrow (it adds a lot of padding), a small one of our own.
 const mobileSelect =

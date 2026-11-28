@@ -26,6 +26,9 @@ export interface BacktestTrade {
   pnl: number;
   r_multiple: number;
   reason: "signal" | "stop" | "target" | "end";
+  /** The trade's stop and target prices (target null when it had none). */
+  stop: number;
+  target: number | null;
 }
 
 export interface BacktestMetrics {
@@ -98,6 +101,8 @@ export function runBacktest(
       pnl,
       r_multiple: p.risk > 0 ? pnl / p.risk : 0,
       reason,
+      stop: p.stop,
+      target: p.target,
     });
     pos = null;
   };

@@ -24,6 +24,8 @@ import { logicalToTime, timeToLogical, type DrawTool, type Drawing } from "@/lib
 import { computeIndicator, heikinAshi, heikinAshiNext, indicatorLabel, isPane, type IndicatorConfig } from "@/lib/markets/indicators";
 import type { Palette } from "@/lib/markets/theme";
 import { tradeLines, tradeMarks } from "@/lib/markets/trade-marks";
+import { botMarks, type BotPreviewTrade } from "@/lib/markets/bot-view";
+import { BotZones } from "@/components/markets/bot-zones";
 import type { Trade } from "@/lib/trading/types";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +65,8 @@ interface Props {
   alertLines?: Array<{ id: string; price: number; op: "above" | "below" }>;
   /** The user's trades on this market: arrows where they opened, results where they closed, lines for open ones. */
   trades?: Trade[];
+  /** "Bot on chart": a bot's strategy trades over these candles (zones, arrows, results). */
+  botTrades?: BotPreviewTrade[];
   className?: string;
 }
 
@@ -82,6 +86,7 @@ interface Pane {
 
 const ts = (t: number) => t as UTCTimestamp;
 const NO_TRADES: Trade[] = [];
+const NO_BOT_TRADES: BotPreviewTrade[] = [];
 const VISIBLE = 140;
 const SCALE_WIDTH = 78;
 const SIGNAL_COLOR = "#E08A3C";
@@ -132,6 +137,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     onToolDone,
     alertLines = [],
     trades = NO_TRADES,
+    botTrades = NO_BOT_TRADES,
     className,
   },
   ref,
@@ -494,6 +500,8 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
   // The user's trades: markers on the price series, and entry / stop / target lines for open ones.
   const tradesRef = useRef(trades);
   tradesRef.current = trades;
+  const botTradesRef = useRef(botTrades);
+  botTradesRef.current = botTrades;
   const tradePriceLines = useRef<Array<{ series: AnySeries; line: IPriceLine }>>([]);
   const applyTrades = () => {
     for (const { series, line } of tradePriceLines.current) {
@@ -507,14 +515,20 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
     for (const s of [candleS.current, lineS.current, areaS.current]) s?.setMarkers([]);
     const t = typeRef.current;
     const series = (t === "line" ? lineS.current : t === "area" ? areaS.current : candleS.current) as AnySeries | null;
-    if (!series || !bars.current.length || !tradesRef.current.length) return;
+    if (!series || !bars.current.length || (!tradesRef.current.length && !botTradesRef.current.length)) return;
     const p = pal.current;
-    const marks = tradeMarks(tradesRef.current, tfRef.current, new Set(bars.current.map((b) => b.time)));
+    const barTimes = new Set(bars.current.map((b) => b.time));
+    // Your trades in up / down colours; the bot's simulated ones in the accent colour, so they're easy
+    // to tell apart. The chart takes one marker list, in time order.
+    const marks = [
+      ...tradeMarks(tradesRef.current, tfRef.current, barTimes).map((m) => ({ ...m, bot: false })),
+      ...botMarks(botTradesRef.current, tfRef.current, barTimes).map((m) => ({ ...m, bot: true })),
+    ].sort((a, b) => a.time - b.time);
     series.setMarkers(
       marks.map((m) => ({
         time: ts(m.time),
         position: (m.kind === "open") === (m.side === "buy") ? ("belowBar" as const) : ("aboveBar" as const),
-        color: m.kind === "open" ? (m.side === "buy" ? p.up : p.down) : m.won ? p.up : p.down,
+        color: m.kind === "open" ? (m.bot ? p.accent : m.side === "buy" ? p.up : p.down) : m.won ? p.up : p.down,
         shape: m.kind === "open" ? (m.side === "buy" ? ("arrowUp" as const) : ("arrowDown" as const)) : ("circle" as const),
         text: m.text,
       })),
@@ -531,7 +545,9 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
       tradePriceLines.current.push({ series, line });
     }
   };
-  const tradesKey = trades.map((t) => `${t.id}:${t.status}:${t.pnl.toFixed(2)}:${t.sl}:${t.tp}:${t.entry_price}`).join("|");
+  const tradesKey =
+    trades.map((t) => `${t.id}:${t.status}:${t.pnl.toFixed(2)}:${t.sl}:${t.tp}:${t.entry_price}`).join("|") +
+    `#${botTrades.length}:${botTrades.at(-1)?.entry_epoch ?? 0}:${botTrades.at(-1)?.reason ?? ""}:${botTrades.at(-1)?.pnl.toFixed(2) ?? ""}`;
   useEffect(() => {
     applyTrades();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -690,6 +706,7 @@ export const PriceChart = forwardRef<PriceChartHandle, Props>(function PriceChar
             Back to latest <span aria-hidden>→</span>
           </button>
         )}
+        {botTrades.length > 0 && <BotZones coords={coords} trades={botTrades} timeframe={timeframe} palette={palette} decimals={decimals} />}
         <DrawingLayer
           coords={coords}
           drawings={drawings}
