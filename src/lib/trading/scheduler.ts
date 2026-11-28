@@ -30,8 +30,13 @@ function literal(value: string): string {
 
 export async function ensureEngineSchedule(sql: Sql): Promise<"registered" | "unchanged" | "skipped"> {
   if (!schedulerWanted()) return "skipped";
-  await sql.unsafe("create extension if not exists pg_net with schema extensions");
-  await sql.unsafe("create extension if not exists pg_cron");
+  // Create the extensions only when missing. Even "if not exists" makes Supabase re-run its pg_cron
+  // permission grants, and two servers starting together then collide ("tuple concurrently updated").
+  const installed = new Set(
+    (await sql<{ extname: string }[]>`select extname from pg_extension where extname in ('pg_net', 'pg_cron')`).map((r) => r.extname),
+  );
+  if (!installed.has("pg_net")) await sql.unsafe("create extension if not exists pg_net with schema extensions");
+  if (!installed.has("pg_cron")) await sql.unsafe("create extension if not exists pg_cron");
   const command = `select net.http_get(url := ${literal(tickUrl())}, timeout_milliseconds := 55000)`;
   const [existing] = await sql<{ command: string; schedule: string; active: boolean }[]>`
     select command, schedule, active from cron.job where jobname = ${ENGINE_JOB}`;
