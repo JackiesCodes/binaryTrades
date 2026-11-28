@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowUpDown, Bell, List, Maximize2, Minimize2, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, Bell, List, Maximize2, Minimize2, Minus, Moon, RefreshCw, SearchX, SlidersHorizontal, Star, Sun, Trash2, X, Zap } from "lucide-react";
 
 import { useDashboard } from "@/components/app/dashboard-context";
 import { useFeedback } from "@/components/app/feedback";
@@ -180,6 +180,23 @@ export function MarketsView() {
   );
   const viewBot = botsHere.find((b) => b.id === prefs?.botView) ?? null;
   const [preview, setPreview] = useState<BotPreview | null>(null);
+  // The floating bot card starts small on phones, so it doesn't cover the candles.
+  const [botCardOpen, setBotCardOpen] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches);
+  // Phones: the price legend spans the chart's top, so the card sits just under it (measured, as the
+  // legend grows with indicators). Wider screens: top-right, beside the legend.
+  const chartBox = useRef<HTMLDivElement>(null);
+  const [legendBottom, setLegendBottom] = useState(0);
+  useEffect(() => {
+    if (!viewBot) return;
+    const box = chartBox.current;
+    const legend = box?.querySelector<HTMLElement>('[data-legend="main"]');
+    if (!box || !legend) return;
+    const measure = () => setLegendBottom(Math.round(legend.getBoundingClientRect().bottom - box.getBoundingClientRect().top));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(legend);
+    return () => ro.disconnect();
+  }, [viewBot, meta]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const viewBotId = viewBot?.id ?? null;
   const viewBotStamp = viewBot ? `${viewBot.id}:${viewBot.timeframe}:${JSON.stringify(viewBot.strategy?.params ?? {})}:${viewBot.risk_amount}:${viewBot.risk_percent}:${JSON.stringify(viewBot.trading_hours ?? null)}:${viewBot.strategy?.code?.length ?? 0}` : null;
@@ -736,57 +753,9 @@ export function MarketsView() {
 
       </div>
 
-      {viewBot && (
-        <div className="relative flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-[var(--mk-border)] bg-[var(--mk-panel)] py-1.5 pl-3 pr-12 text-xs" role="status">
-          <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--mk-text)]">
-            <span className="h-2 w-2 rounded-full bg-[var(--mk-accent)]" aria-hidden />
-            {viewBot.name}
-            <span className="font-normal text-[var(--mk-muted)]">
-              · {TIMEFRAMES.find((t) => t.seconds === viewBot.timeframe)?.label ?? `${Math.round(viewBot.timeframe / 60)}m`} candles
-              {viewBot.status === "running" ? " · running" : " · paused"}
-            </span>
-          </span>
-          {previewError ? (
-            <span className="text-[var(--mk-down)]">{previewError}</span>
-          ) : !preview ? (
-            <span className="text-[var(--mk-muted)]">Running its strategy over the latest candles…</span>
-          ) : (
-            <>
-              <span className="text-[var(--mk-muted)]">
-                Last {preview.range.bars.toLocaleString()} candles: {preview.metrics.trades} trade{preview.metrics.trades === 1 ? "" : "s"}
-                {preview.metrics.trades > 0 && (
-                  <>
-                    {" "}· {Math.round(preview.metrics.win_rate)}% won ·{" "}
-                    <b className={cn("font-mono font-semibold", preview.metrics.net_profit >= 0 ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]")}>
-                      {preview.metrics.net_profit >= 0 ? "+" : "−"}
-                      {Math.abs(preview.metrics.net_profit).toFixed(2)} {preview.currency}
-                    </b>
-                  </>
-                )}
-              </span>
-              <span className="text-[var(--mk-text)]">
-                Now: <b className="font-semibold">{botNowText(preview, (n) => formatPrice(n, decimals))}</b>
-              </span>
-            </>
-          )}
-          {!timeframeForBot(viewBot.timeframe) && (
-            <span className="text-[var(--mk-muted)]">(the chart has no {Math.round(viewBot.timeframe / 60)}-minute candles: shown on these)</span>
-          )}
-          <button
-            type="button"
-            onClick={() => set({ botView: null })}
-            className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)] max-lg:h-10 max-lg:w-10"
-            aria-label={`Stop showing ${viewBot.name} on the chart`}
-            title="Hide the bot from the chart"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
       <div className="relative flex min-h-0 flex-1">
         {/* Chart */}
-        <div className="relative min-h-0 min-w-0 flex-1">
+        <div ref={chartBox} className="relative min-h-0 min-w-0 flex-1">
           {meta && (
             <PriceChart
               ref={chart}
@@ -806,6 +775,100 @@ export function MarketsView() {
               botTrades={viewBot && preview && preview.bot.id === viewBot.id ? preview.trades : NO_BOT_TRADES}
               className="h-full"
             />
+          )}
+          {/* Bot on chart: a card floating in the chart's top-right corner, beside the price axis. */}
+          {viewBot && (
+            <div
+              role="status"
+              className="absolute right-[64px] top-[var(--bot-card-top)] z-20 max-w-[min(22rem,calc(100%-76px))] rounded-xl border border-[var(--mk-border)] text-xs shadow-glass backdrop-blur-md sm:right-[86px] sm:top-2"
+              style={{ background: `${palette.panel}e6`, ["--bot-card-top" as string]: `${Math.max(6, legendBottom + 6)}px` }}
+            >
+              {botCardOpen ? (
+                <div className="grid gap-1 py-2 pl-3 pr-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--mk-accent)]" aria-hidden />
+                    <span className="min-w-0 truncate font-semibold text-[var(--mk-text)]">{viewBot.name}</span>
+                    <span className="shrink-0 text-[var(--mk-muted)]">
+                      · {TIMEFRAMES.find((t) => t.seconds === viewBot.timeframe)?.label ?? `${Math.round(viewBot.timeframe / 60)}m`}
+                      {viewBot.status === "running" ? " · running" : " · paused"}
+                    </span>
+                    <span className="ml-auto flex shrink-0 items-center">
+                      <button
+                        type="button"
+                        onClick={() => setBotCardOpen(false)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)] max-lg:h-9 max-lg:w-9"
+                        aria-label="Shrink the bot card"
+                        title="Shrink"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => set({ botView: null })}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--mk-muted)] hover:bg-[var(--mk-raised)] hover:text-[var(--mk-text)] max-lg:h-9 max-lg:w-9"
+                        aria-label={`Stop showing ${viewBot.name} on the chart`}
+                        title="Hide the bot from the chart"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                  {previewError ? (
+                    <p className="text-[var(--mk-down)]">{previewError}</p>
+                  ) : !preview ? (
+                    <p className="text-[var(--mk-muted)]">Running its strategy over the latest candles…</p>
+                  ) : (
+                    <>
+                      <p className="text-[var(--mk-muted)]">
+                        Last {preview.range.bars.toLocaleString()} candles: {preview.metrics.trades} trade{preview.metrics.trades === 1 ? "" : "s"}
+                        {preview.metrics.trades > 0 && (
+                          <>
+                            {" "}· {Math.round(preview.metrics.win_rate)}% won ·{" "}
+                            <b className={cn("font-mono font-semibold", preview.metrics.net_profit >= 0 ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]")}>
+                              {preview.metrics.net_profit >= 0 ? "+" : "−"}
+                              {Math.abs(preview.metrics.net_profit).toFixed(2)} {preview.currency}
+                            </b>
+                          </>
+                        )}
+                      </p>
+                      <p className="text-[var(--mk-text)]">
+                        Now: <b className="font-semibold">{botNowText(preview, (n) => formatPrice(n, decimals))}</b>
+                      </p>
+                    </>
+                  )}
+                  {!timeframeForBot(viewBot.timeframe) && (
+                    <p className="text-[var(--mk-muted)]">The chart has no {Math.round(viewBot.timeframe / 60)}-minute candles: shown on these.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setBotCardOpen(true)}
+                    className="inline-flex h-8 min-w-0 items-center gap-1.5 rounded-l-xl pl-2.5 pr-1.5 font-semibold text-[var(--mk-text)] max-lg:h-10"
+                    aria-label={`Show ${viewBot.name}'s summary`}
+                    title="Show the summary"
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--mk-accent)]" aria-hidden />
+                    <span className="truncate">{viewBot.name}</span>
+                    {preview && (
+                      <span className={cn("shrink-0 font-normal", preview.open ? (preview.open.side === "buy" ? "text-[var(--mk-up)]" : "text-[var(--mk-down)]") : "text-[var(--mk-muted)]")}>
+                        · {preview.open ? `${preview.open.side.toUpperCase()} open` : "waiting"}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => set({ botView: null })}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-r-xl text-[var(--mk-muted)] hover:text-[var(--mk-text)] max-lg:h-10 max-lg:w-9"
+                    aria-label={`Stop showing ${viewBot.name} on the chart`}
+                    title="Hide the bot from the chart"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {panel && <IndicatorsPanel indicators={indicators} onChange={changeIndicators} onClose={() => setPanel(null)} editId={panel.edit} />}
           {/* Phones: Trade as a floating button on the chart (the toolbar one is off-screen there). */}
